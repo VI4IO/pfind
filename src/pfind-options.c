@@ -73,14 +73,13 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
       argv[i] = none;
       argv[++i] = none;
     }else if(! firstarg){
-      firstarg = argv[i];
+      firstarg = strdup(argv[i]);
       argv[i] = none;
     }
   }
-  if(! firstarg){
-    pfind_abort("Error: pfind <directory>\n");
+  if(argc == 2){
+    firstarg = strdup(argv[1]);
   }
-  res->workdir = firstarg;
 
   int c;
   while ((c = getopt(argc, argv, "Cs:r:vhD:")) != -1) {
@@ -112,9 +111,9 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
     }
   }
 
-
   if(print_help){
-    pfind_print_help(res);
+    if(pfind_rank == 0)
+      pfind_print_help(res);
     int init;
     MPI_Initialized( & init);
     if(init){
@@ -122,5 +121,12 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
     }
     exit(0);
   }
+
+
+  if(! firstarg){
+    pfind_abort("Error: pfind <directory>\n");
+  }
+  res->workdir = firstarg;
+
   return res;
 }
