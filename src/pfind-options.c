@@ -9,8 +9,8 @@
 
 // $io500_find_cmd $io500_workdir -newer $timestamp_file -size ${mdt_hard_fsize}c -name *01*
 
-static void pfind_abort(char * str){
-  printf(str);
+void pfind_abort(char * str){
+  printf("%s", str);
   exit(1);
 }
 
@@ -22,6 +22,7 @@ static void pfind_print_help(pfind_options_t * res){
       "\t-name = \"%s\"\n"
       "Optional flags\n"
       "\t-C: don't ouput file names just count the number of files found\n"
+      "\t-D [rates]: print rates\n"
       "\t-s <seconds>: Stonewall timer for find = %d\n"
       "\t-h: prints the help\n"
       "\t--help: prints the help without initializing MPI\n"
@@ -46,10 +47,11 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   res->verbosity = 0;
   res->timestamp_file = NULL;
   res->name = NULL;
-  res->size = (uint64_t) -1;
+  res->size = UINT64_MAX;
   char * none = "";
+  char * firstarg = NULL;
 
-  for(int i=0; i < argc - 1; i++){
+  for(int i=1; i < argc - 1; i++){
     if(strcmp(argv[i], "-newer") == 0){
       res->timestamp_file = strdup(argv[i+1]);
       argv[i] = none;
@@ -70,11 +72,18 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
       res->name = strdup(argv[i+1]);
       argv[i] = none;
       argv[++i] = none;
+    }else if(! firstarg){
+      firstarg = argv[i];
+      argv[i] = none;
     }
   }
+  if(! firstarg){
+    pfind_abort("Error: pfind <directory>\n");
+  }
+  res->workdir = firstarg;
 
   int c;
-  while ((c = getopt(argc, argv, "Cs:r:vh")) != -1) {
+  while ((c = getopt(argc, argv, "Cs:r:vhD:")) != -1) {
     if (c == -1) {
         break;
     }
@@ -82,6 +91,13 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
     switch (c) {
     case 'C':
       res->just_count = 1; break;
+    case 'D':
+      if(strcmp(optarg, "rates") == 0){
+        res->print_rates = 1;
+      }else{
+        pfind_abort("Unsupported debug flag\n");
+      }
+      break;
     case 'h':
       print_help = 1; break;
     case 'r':
@@ -91,12 +107,12 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
       break;
     case 'v':
       res->verbosity++; break;
-    case 'w':
-      res->workdir = strdup(optarg); break;
     case 0:
       break;
     }
   }
+
+
   if(print_help){
     pfind_print_help(res);
     int init;

@@ -7,10 +7,6 @@
 
 int pfind_rank;
 
-int pfind_find(void * p){
-
-}
-
 int main(int argc, char ** argv){
   // output help with --help to enable running without mpiexec
   for(int i=0; i < argc; i++){
@@ -26,10 +22,15 @@ int main(int argc, char ** argv){
   MPI_Comm_rank(MPI_COMM_WORLD, & pfind_rank);
 
   pfind_options_t * options = pfind_parse_args(argc, argv, 0);
+  pfind_find_results_t * find = pfind_find(options);
+  if(pfind_rank == 0){
+    if(options->print_rates){
+      printf("[DONE] rate: %.3f kiops time: %.1fs err: %ld found: %ld (scanned %ld files)\n",  find->rate / 1000, find->runtime, find->errors, find->found_files, find->total_files);
+    }else{
+      printf("[DONE] found: %ld (scanned %ld files, err: %ld)\n", find->found_files, find->total_files, find->errors);
+    }
+  }
 
-  MPI_Barrier(MPI_COMM_WORLD);
-
-  pfind_find(options);
   MPI_Finalize();
   return 0;
 }
