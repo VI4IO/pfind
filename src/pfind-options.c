@@ -86,7 +86,6 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
         }
       }
       out[pos] = 0;
-      printf("%s\n", out);
 
       int ret = regcomp(& res->name_regex, res->name_pattern, 0);
       if(ret){
@@ -139,6 +138,9 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
     case 0:
       break;
     }
+  }
+  if(res->verbosity > 1){
+    printf("Regex: %s\n", res->name_pattern);
   }
 
   if(print_help){
