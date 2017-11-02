@@ -136,7 +136,7 @@ static void check_buf(struct stat buf, char * path){
     // compare values
     if(opt->timestamp_file){
       if( (uint64_t) buf.st_ctime < runtime.ctime_min ){
-        if(opt->verbosity >= 2){
+        if(opt->verbosity >= 2 && runtime.logfile){
           fprintf(runtime.logfile, "Timestamp too small: %s\n", path);
         }
         return;
@@ -145,14 +145,14 @@ static void check_buf(struct stat buf, char * path){
     if(opt->size != UINT64_MAX){
       uint64_t size = (uint64_t) buf.st_size;
       if(size != opt->size){
-        if(opt->verbosity >= 2){
+        if(opt->verbosity >= 2 && runtime.logfile){
           fprintf(runtime.logfile, "Size does not match: %s has %zu bytes\n", path, (size_t) buf.st_size);
         }
         return;
       }
     }
-    if(opt->verbosity >= 2){
-      fprintf(runtime.logfile, "Found acceptable file: %s\n", path);
+    if(runtime.logfile && ! opt->just_count){
+      fprintf(runtime.logfile, "%s\n", path + 1);
     }
     res->found_files++;
 }
@@ -160,7 +160,7 @@ static void check_buf(struct stat buf, char * path){
 static void find_do_lstat(char *path) {
   struct stat buf;
   // filename comparison has been done already
-  if(opt->verbosity >= 2){
+  if(opt->verbosity >= 2 && runtime.logfile){
     fprintf(runtime.logfile, "STAT: %s\n", path);
   }
 
@@ -168,7 +168,7 @@ static void find_do_lstat(char *path) {
     check_buf(buf, path);
   } else {
     res->errors++;
-    if(opt->verbosity >= 1){
+    if(runtime.logfile){
       fprintf(runtime.logfile, "Error stating file: %s\n", path);
     }
   }
@@ -178,7 +178,9 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
     int path_len = strlen(path+1);
     DIR *d = opendir(path+1);
     if (!d) {
-        fprintf (runtime.logfile, "Cannot open '%s': %s\n", path+1, strerror (errno));
+        if(runtime.logfile){
+          fprintf (runtime.logfile, "Cannot open '%s': %s\n", path+1, strerror (errno));
+        }
         return;
     }
     int fd = dirfd(d);
@@ -186,7 +188,7 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
         struct dirent *entry;
         entry = readdir(d);
         if (opt->stonewall_timer && MPI_Wtime() >= runtime.stonewall_endtime ){
-          if(opt->verbosity > 1){
+          if(opt->verbosity > 1 && runtime.logfile){
             fprintf (runtime.logfile, "Hit stonewall at %.2fs\n", MPI_Wtime());
           }
           break;
@@ -204,7 +206,7 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
           struct stat buf;
           if (fstatat(fd, entry->d_name, & buf, 0 )) {
             res->errors++;
-            if(opt->verbosity >= 1){
+            if(runtime.logfile){
               fprintf(runtime.logfile, "Error stating file: %s\n", path);
             }
             continue;
@@ -215,15 +217,21 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
             res->total_files++;
             // compare values
             if(opt->name != NULL && strstr(entry->d_name, opt->name) == NULL){
+              if(opt->verbosity >= 2 && runtime.logfile){
+                fprintf(runtime.logfile, "Name does not match: %s\n", entry->d_name);
+              }
               continue;
             }
             check_buf(buf, entry->d_name);
             continue;
           }
-        }else if (typ == 'f'){
+        }else if (typ != 'd'){
           res->total_files++;
           // compare file name
           if(opt->name != NULL && strstr(entry->d_name, opt->name) == NULL){
+            if(opt->verbosity >= 2 && runtime.logfile){
+              fprintf(runtime.logfile, "Name does not match: %s\n", entry->d_name);
+            }
             continue;
           }
         }
