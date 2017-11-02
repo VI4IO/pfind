@@ -21,11 +21,14 @@ static char item_buf[8192]; // buffer to construct type / path combos for queue 
 static pfind_options_t * opt;
 static pfind_find_results_t * res = NULL;
 
-static struct pfind_runtime_options_t{
+typedef struct{
   uint64_t    ctime_min;
   double      stonewall_endtime;
   FILE *      logfile;
-} runtime;
+  int         needs_stat;
+} pfind_runtime_options_t;
+
+static pfind_runtime_options_t runtime;
 
 static void find_create_work(CIRCLE_handle *handle);
 static void find_process_work(CIRCLE_handle *handle);
@@ -33,6 +36,7 @@ static void find_process_work(CIRCLE_handle *handle);
 
 pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   opt = lopt;
+  memset(& runtime, 0, sizeof(pfind_runtime_options_t));
 
   if(opt->timestamp_file){
     static struct stat timer_file;
@@ -53,6 +57,10 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     }
   }else{
     runtime.logfile = NULL;
+  }
+
+  if(opt->timestamp_file || opt->size != UINT64_MAX){
+    runtime.needs_stat = 1;
   }
 
 
@@ -232,6 +240,11 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
             if(opt->verbosity >= 2 && runtime.logfile){
               fprintf(runtime.logfile, "Name does not match: %s\n", entry->d_name);
             }
+            continue;
+          }
+          if(! runtime.needs_stat){
+            // optimization to skip stat
+            res->found_files++;
             continue;
           }
         }
