@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <mpi.h>
+#include <regex.h>
 
 #include "pfind-options.h"
 
@@ -16,10 +17,10 @@ void pfind_abort(char * str){
 
 static void pfind_print_help(pfind_options_t * res){
   printf("pfind \nSynopsis:\n"
-      "pfind <workdir> [-newer <timestamp file>] [-size <size>c] [-name <substr>]\n"
+      "pfind <workdir> [-newer <timestamp file>] [-size <size>c] [-name <substr>] [-regex <regex>]\n"
       "\tworkdir = \"%s\"\n"
       "\t-newer = \"%s\"\n"
-      "\t-name = \"%s\"\n"
+      "\t-name|-regex = \"%s\"\n"
       "Optional flags\n"
       "\t-C: don't ouput file names just count the number of files found\n"
       "\t-D [rates]: print rates\n"
@@ -30,7 +31,7 @@ static void pfind_print_help(pfind_options_t * res){
       "\t-v: increase the verbosity, use multiple times to increase level = %d\n",
       res->workdir,
       res->timestamp_file,
-      res->name,
+      res->name_pattern,
       res->stonewall_timer,
       res->results_dir,
       res->verbosity
@@ -46,7 +47,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   res->results_dir = "./pfind-results/";
   res->verbosity = 0;
   res->timestamp_file = NULL;
-  res->name = NULL;
+  res->name_pattern = NULL;
   res->size = UINT64_MAX;
   char * none = "";
   char * firstarg = NULL;
@@ -69,7 +70,36 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
       argv[i] = none;
       argv[++i] = none;
     }else if(strcmp(argv[i], "-name") == 0){
-      res->name = strdup(argv[i+1]);
+      res->name_pattern = malloc(strlen(argv[i+1])*4+100);
+      // transform a traditional name pattern to a regex:
+      char * str = argv[i+1];
+      char * out = res->name_pattern;
+      int pos = 0;
+      for(unsigned i=0; i < strlen(str); i++){
+        if(str[i] == '*'){
+          pos += sprintf(out + pos, ".*");
+        }else if(str[i] == '.'){
+          pos += sprintf(out + pos, "[.]");
+        }else{
+          out[pos] = str[i];
+          pos++;
+        }
+      }
+      out[pos] = 0;
+      printf("%s\n", out);
+
+      int ret = regcomp(& res->name_regex, res->name_pattern, 0);
+      if(ret){
+        pfind_abort("Invalid regex for name given\n");
+      }
+      argv[i] = none;
+      argv[++i] = none;
+    }else if(strcmp(argv[i], "-regex") == 0){
+      res->name_pattern = strdup(argv[i+1]);
+      int ret = regcomp(& res->name_regex, res->name_pattern, 0);
+      if(ret){
+        pfind_abort("Invalid regex for name given\n");
+      }
       argv[i] = none;
       argv[++i] = none;
     }else if(! firstarg){

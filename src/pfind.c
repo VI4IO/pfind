@@ -224,7 +224,7 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
           if(typ == 'f'){ // since we have done the stat already, it would be a waste to do it again
             res->total_files++;
             // compare values
-            if(opt->name != NULL && strstr(entry->d_name, opt->name) == NULL){
+            if(opt->name_pattern && regexec(& opt->name_regex, entry->d_name, 0, NULL, 0) ){
               if(opt->verbosity >= 2 && runtime.logfile){
                 fprintf(runtime.logfile, "Name does not match: %s\n", entry->d_name);
               }
@@ -236,7 +236,7 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
         }else if (typ != 'd'){
           res->total_files++;
           // compare file name
-          if(opt->name != NULL && strstr(entry->d_name, opt->name) == NULL){
+          if(opt->name_pattern && regexec(& opt->name_regex, entry->d_name, 0, NULL, 0) ){
             if(opt->verbosity >= 2 && runtime.logfile){
               fprintf(runtime.logfile, "Name does not match: %s\n", entry->d_name);
             }
@@ -245,6 +245,9 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
           if(! runtime.needs_stat){
             // optimization to skip stat
             res->found_files++;
+            if(runtime.logfile && ! opt->just_count){
+              fprintf(runtime.logfile, "%s/%s\n", path + 1, entry->d_name);
+            }
             continue;
           }
         }

@@ -2,6 +2,7 @@
 #define PFIND_OPTIONS_H
 
 #include <stdint.h>
+#include <regex.h>
 
 extern int pfind_rank;
 
@@ -13,7 +14,8 @@ typedef struct {
   int print_rates;
 
   char * timestamp_file;
-  char * name;
+  char * name_pattern;
+  regex_t name_regex;
   uint64_t size;
 
   int verbosity;
