@@ -22,6 +22,7 @@ int main(int argc, char ** argv){
   MPI_Comm_rank(MPI_COMM_WORLD, & pfind_rank);
 
   pfind_options_t * options = pfind_parse_args(argc, argv, 0);
+
   pfind_find_results_t * find = pfind_find(options);
   if(pfind_rank == 0){
      printf("MATCHED %ld/%ld\n", find->found_files, find->total_files);
@@ -30,6 +31,8 @@ int main(int argc, char ** argv){
     }else{
       printf("[DONE] found: %ld (scanned %ld files, err: %ld)\n", find->found_files, find->total_files, find->errors);
     }
+    printf("MATCHED %ld/%ld\n", find->found_files, find->total_files);
+            
   }
 
   MPI_Finalize();
