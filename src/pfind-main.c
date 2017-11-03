@@ -24,6 +24,7 @@ int main(int argc, char ** argv){
   pfind_options_t * options = pfind_parse_args(argc, argv, 0);
   pfind_find_results_t * find = pfind_find(options);
   if(pfind_rank == 0){
+     printf("MATCHED %ld/%ld\n", find->found_files, find->total_files);
     if(options->print_rates){
       printf("[DONE] rate: %.3f kiops time: %.1fs err: %ld found: %ld (scanned %ld files)\n",  find->rate / 1000, find->runtime, find->errors, find->found_files, find->total_files);
     }else{
