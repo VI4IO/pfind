@@ -1,6 +1,15 @@
 # Prerequisites
 *.d
 
+# Stuff we might produce
+libcircle/
+pfind
+pfind-results/
+
+# vim swap files
+*.swp
+*.swp
+
 # Object files
 *.o
 *.ko
