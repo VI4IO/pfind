@@ -53,13 +53,13 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   char * firstarg = NULL;
 
   // when we find special args, we process them
-  // but we need to replace them with -x X or -X so
-  // that getopt will continue to process beyond them
+  // but we need to replace them with -x so that getopt will ignore them
+  // and getopt will continue to process beyond them
   for(int i=1; i < argc - 1; i++){
     if(strcmp(argv[i], "-newer") == 0){
       res->timestamp_file = strdup(argv[i+1]);
       argv[i] = "-x";
-      argv[++i] = "X";
+      argv[++i] = "-x";
     }else if(strcmp(argv[i], "-size") == 0){
       char * str = argv[i+1];
       char extension = str[strlen(str)-1];
@@ -71,7 +71,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
           pfind_abort("Unsupported exension for -size\n");
       }
       argv[i] = "-x";
-      argv[++i] = "X";
+      argv[++i] = "-x";
     }else if(strcmp(argv[i], "-name") == 0){
       res->name_pattern = malloc(strlen(argv[i+1])*4+100);
       // transform a traditional name pattern to a regex:
@@ -95,7 +95,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
         pfind_abort("Invalid regex for name given\n");
       }
       argv[i] = "-x";
-      argv[++i] = "X";
+      argv[++i] = "-x";
     }else if(strcmp(argv[i], "-regex") == 0){
       res->name_pattern = strdup(argv[i+1]);
       int ret = regcomp(& res->name_regex, res->name_pattern, 0);
@@ -103,10 +103,10 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
         pfind_abort("Invalid regex for name given\n");
       }
       argv[i] = "-x";
-      argv[++i] = "x";
+      argv[++i] = "-x";
     }else if(! firstarg){
       firstarg = strdup(argv[i]);
-      argv[i] = "-X";
+      argv[i] = "-x";
     }
   }
   if(argc == 2){
@@ -114,14 +114,14 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   }
 
   int c;
-  while ((c = getopt(argc, argv, "Cs:r:vhD:x:X")) != -1) {
+  while ((c = getopt(argc, argv, "Cs:r:vhD:x")) != -1) {
     if (c == -1) {
         break;
     }
 
     switch (c) {
-    case 'x':   /* these are fake args that we added when we earlier processed the extra args */
-    case 'X':   /* so just ignore them here */
+    case 'x':   
+        /* ignore fake arg that we added when we processed the extra args */
         break;
     case 'C':
       res->just_count = 1; break;
