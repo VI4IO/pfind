@@ -52,11 +52,14 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   char * none = "";
   char * firstarg = NULL;
 
+  // when we find special args, we process them
+  // but we need to replace them with -x X or -X so
+  // that getopt will continue to process beyond them
   for(int i=1; i < argc - 1; i++){
     if(strcmp(argv[i], "-newer") == 0){
       res->timestamp_file = strdup(argv[i+1]);
-      argv[i] = none;
-      argv[++i] = none;
+      argv[i] = "-x";
+      argv[++i] = "X";
     }else if(strcmp(argv[i], "-size") == 0){
       char * str = argv[i+1];
       char extension = str[strlen(str)-1];
@@ -67,8 +70,8 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
         default:
           pfind_abort("Unsupported exension for -size\n");
       }
-      argv[i] = none;
-      argv[++i] = none;
+      argv[i] = "-x";
+      argv[++i] = "X";
     }else if(strcmp(argv[i], "-name") == 0){
       res->name_pattern = malloc(strlen(argv[i+1])*4+100);
       // transform a traditional name pattern to a regex:
@@ -91,19 +94,19 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
       if(ret){
         pfind_abort("Invalid regex for name given\n");
       }
-      argv[i] = none;
-      argv[++i] = none;
+      argv[i] = "-x";
+      argv[++i] = "X";
     }else if(strcmp(argv[i], "-regex") == 0){
       res->name_pattern = strdup(argv[i+1]);
       int ret = regcomp(& res->name_regex, res->name_pattern, 0);
       if(ret){
         pfind_abort("Invalid regex for name given\n");
       }
-      argv[i] = none;
-      argv[++i] = none;
+      argv[i] = "-x";
+      argv[++i] = "x";
     }else if(! firstarg){
       firstarg = strdup(argv[i]);
-      argv[i] = none;
+      argv[i] = "-X";
     }
   }
   if(argc == 2){
@@ -111,12 +114,15 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   }
 
   int c;
-  while ((c = getopt(argc, argv, "Cs:r:vhD:")) != -1) {
+  while ((c = getopt(argc, argv, "Cs:r:vhD:x:X")) != -1) {
     if (c == -1) {
         break;
     }
 
     switch (c) {
+    case 'x':
+    case 'X':
+        break;
     case 'C':
       res->just_count = 1; break;
     case 'D':
