@@ -120,8 +120,8 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
     }
 
     switch (c) {
-    case 'x':
-    case 'X':
+    case 'x':   /* these are fake args that we added when we earlier processed the extra args */
+    case 'X':   /* so just ignore them here */
         break;
     case 'C':
       res->just_count = 1; break;
