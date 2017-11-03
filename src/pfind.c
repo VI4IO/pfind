@@ -39,11 +39,14 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   memset(& runtime, 0, sizeof(pfind_runtime_options_t));
 
   if(opt->timestamp_file){
-    static struct stat timer_file;
-    if(lstat(opt->timestamp_file, & timer_file) != 0) {
-      pfind_abort("Could not read timestamp file!");
+    if(pfind_rank==0) {
+        static struct stat timer_file;
+        if(lstat(opt->timestamp_file, & timer_file) != 0) {
+          pfind_abort("Could not read timestamp file!");
+        }
+        runtime.ctime_min = timer_file.st_ctime;
     }
-    runtime.ctime_min = timer_file.st_ctime;
+    MPI_Bcast(&runtime.ctime_min, 1, MPI_INT, 0, MPI_COMM_WORLD);
   }
 
   if(opt->results_dir && ! opt->just_count){
