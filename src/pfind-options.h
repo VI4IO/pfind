@@ -5,8 +5,10 @@
 #include <regex.h>
 
 extern int pfind_rank;
+extern int pfind_size;
 
 typedef struct {
+  // https://www.gnu.org/software/findutils/manual/html_mono/find.html
   char * workdir;
   int just_count;
   char * results_dir;

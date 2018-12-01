@@ -7,8 +7,9 @@
 #include <limits.h>
 #include <sys/stat.h>
 #include <mpi.h>
+#include <fcntl.h>
+#include <unistd.h>
 
-#include <libcircle.h>
 #include "pfind-options.h"
 
 // this version is based on mpistat
@@ -16,7 +17,7 @@
 
 // globals
 static char start_dir[8192]; // absolute path of start directory
-static char item_buf[8192]; // buffer to construct type / path combos for queue items
+static int start_dir_length;
 
 static pfind_options_t * opt;
 static pfind_find_results_t * res = NULL;
@@ -24,15 +25,54 @@ static pfind_find_results_t * res = NULL;
 typedef struct{
   uint64_t    ctime_min;
   double      stonewall_endtime;
-  FILE *      logfile;
+  int         logfile;
   int         needs_stat;
 } pfind_runtime_options_t;
 
 static pfind_runtime_options_t runtime;
+static void find_do_readdir(char *path);
+static void find_do_lstat(char *path);
 
-static void find_create_work(CIRCLE_handle *handle);
-static void find_process_work(CIRCLE_handle *handle);
+// process work callback
+static void find_process_work()
+{
+  MPI_Status status;
+  char item_buf[8192]; // buffer to construct type / path combos for queue items
+  int ret;
+  while(1){
+    ret = MPI_Recv(item_buf, 8192, MPI_CHAR, MPI_ANY_SOURCE, 4711, MPI_COMM_WORLD, & status);
+    if(opt->verbosity >= 2){
+      printf("Recvd %d: %s\n", pfind_rank, item_buf);
+    }
 
+    if (*item_buf == '0') {
+      // stop message
+      if( pfind_rank == 0){
+        for(int i=1; i < pfind_size; i++){
+          MPI_Send("0", 1, MPI_CHAR, i, 4711, MPI_COMM_WORLD);
+        }
+      }
+      return;
+    }else if (*item_buf == 'd') {
+      find_do_readdir(item_buf + 1);
+    }else{
+      find_do_lstat(item_buf + 1);
+    }
+  }
+}
+
+static void pfind_send_random(int is_dir, char * dir, char * entry){
+  char item_buf[8192];
+  MPI_Request request;
+  int ret;
+  int rnd = rand() % pfind_size;
+  sprintf(item_buf, "%c%s/%s", is_dir ? 'd' : 'f', dir, entry);
+  if(opt->verbosity >= 2){
+    printf("%d->%d send: %s\n", pfind_rank, rnd, item_buf);
+  }
+  ret = MPI_Isend(item_buf, strlen(item_buf) +1, MPI_CHAR, rnd, 4711, MPI_COMM_WORLD, & request);
+
+}
 
 pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   opt = lopt;
@@ -53,24 +93,18 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     char outfile[10240];
     sprintf(outfile, "%s/%d.txt", opt->results_dir, pfind_rank);
     mkdir(opt->results_dir, S_IRWXU);
-    runtime.logfile = fopen(outfile, "w");
+    runtime.logfile = open(outfile, O_CREAT|O_WRONLY|O_TRUNC, S_IWUSR | S_IRUSR);
 
-    if(! runtime.logfile){
+    if(runtime.logfile == -1){
       pfind_abort("Could not open output logfile!\n");
     }
   }else{
-    runtime.logfile = NULL;
+    runtime.logfile = 2;
   }
 
   if(opt->timestamp_file || opt->size != UINT64_MAX){
     runtime.needs_stat = 1;
   }
-
-
-  int argc = 1;
-  char * argv[] = {"test"};
-	CIRCLE_init(argc, argv, CIRCLE_SPLIT_RANDOM);
-  CIRCLE_enable_logging(CIRCLE_LOG_FATAL);
 
   //ior_aiori_t * backend = aiori_select(opt->backend_name);
   double start = MPI_Wtime();
@@ -83,31 +117,22 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     runtime.stonewall_endtime = 0;
   }
 
-  DIR * sd=opendir(start_dir);
+  DIR * sd = opendir(start_dir);
   if (err == NULL || ! sd) {
       fprintf (stderr, "Cannot open directory '%s': %s\n", start_dir, strerror (errno));
       exit (EXIT_FAILURE);
   }
-  memset(item_buf, 0, sizeof(item_buf));
-  sprintf(item_buf, "%c%s", 'd', start_dir);
+  start_dir_length = strlen(start_dir);
 
-	// set the create work callback
-  CIRCLE_cb_create(& find_create_work);
-
-	// set the process work callback
-	CIRCLE_cb_process(& find_process_work);
-
-	// enter the processing loop
-	CIRCLE_begin();
-
-	// wait for all processing to finish and then clean up
-	CIRCLE_finalize();
+  // startup
+  MPI_Bsend("d/", 3, MPI_CHAR, 0, 4711, MPI_COMM_WORLD);
+  find_process_work();
 
   double end = MPI_Wtime();
   res->runtime = end - start;
 
-  if(runtime.logfile){
-    fclose(runtime.logfile);
+  if(runtime.logfile != 2){
+    close(runtime.logfile);
   }
 
   double runtime = res->runtime;
@@ -147,8 +172,8 @@ static void check_buf(struct stat buf, char * path){
     // compare values
     if(opt->timestamp_file){
       if( (uint64_t) buf.st_ctime < runtime.ctime_min ){
-        if(opt->verbosity >= 2 && runtime.logfile){
-          fprintf(runtime.logfile, "Timestamp too small: %s\n", path);
+        if(opt->verbosity >= 2){
+          printf("Timestamp too small: %s\n", path);
         }
         return;
       }
@@ -156,41 +181,44 @@ static void check_buf(struct stat buf, char * path){
     if(opt->size != UINT64_MAX){
       uint64_t size = (uint64_t) buf.st_size;
       if(size != opt->size){
-        if(opt->verbosity >= 2 && runtime.logfile){
-          fprintf(runtime.logfile, "Size does not match: %s has %zu bytes\n", path, (size_t) buf.st_size);
+        if(opt->verbosity >= 2){
+          printf("Size does not match: %s has %zu bytes\n", path, (size_t) buf.st_size);
         }
         return;
       }
     }
     if(runtime.logfile && ! opt->just_count){
-      fprintf(runtime.logfile, "%s\n", path + 1);
+      printf("%s\n", path);
     }
     res->found_files++;
 }
 
 static void find_do_lstat(char *path) {
+  char dir[8192];
+  sprintf(dir, "%s/%s", start_dir, path);
   struct stat buf;
   // filename comparison has been done already
-  if(opt->verbosity >= 2 && runtime.logfile){
-    fprintf(runtime.logfile, "STAT: %s\n", path);
+  if(opt->verbosity >= 2){
+    printf("STAT: %s\n", dir);
   }
 
-  if (lstat(path+1, & buf) == 0) {
-    check_buf(buf, path);
+  if (lstat(dir, & buf) == 0) {
+    check_buf(buf, dir);
   } else {
     res->errors++;
     if(runtime.logfile){
-      fprintf(runtime.logfile, "Error stating file: %s\n", path);
+      printf("Error stating file: %s\n", dir);
     }
   }
 }
 
-static void find_do_readdir(char *path, CIRCLE_handle *handle) {
-    int path_len = strlen(path+1);
-    DIR *d = opendir(path+1);
+static void find_do_readdir(char *path) {
+    char dir[8192];
+    sprintf(dir, "%s%s", start_dir, path);
+    DIR *d = opendir(dir);
     if (!d) {
         if(runtime.logfile){
-          fprintf (runtime.logfile, "Cannot open '%s': %s\n", path+1, strerror (errno));
+          printf("Cannot open '%s': %s\n", dir, strerror (errno));
         }
         return;
     }
@@ -199,8 +227,8 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
         struct dirent *entry;
         entry = readdir(d);
         if (opt->stonewall_timer && MPI_Wtime() >= runtime.stonewall_endtime ){
-          if(opt->verbosity > 1 && runtime.logfile){
-            fprintf (runtime.logfile, "Hit stonewall at %.2fs\n", MPI_Wtime());
+          if(opt->verbosity > 1){
+            printf("Hit stonewall at %.2fs\n", MPI_Wtime());
           }
           break;
         }
@@ -218,7 +246,7 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
           if (fstatat(fd, entry->d_name, & buf, 0 )) {
             res->errors++;
             if(runtime.logfile){
-              fprintf(runtime.logfile, "Error stating file: %s\n", path);
+              printf("Error stating file: %s\n", dir);
             }
             continue;
           }
@@ -228,8 +256,8 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
             res->total_files++;
             // compare values
             if(opt->name_pattern && regexec(& opt->name_regex, entry->d_name, 0, NULL, 0) ){
-              if(opt->verbosity >= 2 && runtime.logfile){
-                fprintf(runtime.logfile, "Name does not match: %s\n", entry->d_name);
+              if(opt->verbosity >= 2){
+                printf("Name does not match: %s\n", entry->d_name);
               }
               continue;
             }
@@ -240,8 +268,8 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
           res->total_files++;
           // compare file name
           if(opt->name_pattern && regexec(& opt->name_regex, entry->d_name, 0, NULL, 0) ){
-            if(opt->verbosity >= 2 && runtime.logfile){
-              fprintf(runtime.logfile, "Name does not match: %s\n", entry->d_name);
+            if(opt->verbosity >= 2){
+              printf("Name does not match: %s\n", entry->d_name);
             }
             continue;
           }
@@ -249,37 +277,12 @@ static void find_do_readdir(char *path, CIRCLE_handle *handle) {
             // optimization to skip stat
             res->found_files++;
             if(runtime.logfile && ! opt->just_count){
-              fprintf(runtime.logfile, "%s/%s\n", path + 1, entry->d_name);
+              printf("%s/%s\n", dir, entry->d_name);
             }
             continue;
           }
         }
-        char *tmp=(char*) malloc(path_len+strlen(entry->d_name)+3);
-        *tmp = typ;
-        strcpy(tmp+1, path+1);
-        *(tmp+path_len+1)='/';
-        strcpy(tmp + path_len+2, entry->d_name);
-        handle->enqueue(tmp);
+        pfind_send_random(typ == 'd', path, entry->d_name);
     }
     closedir(d);
-}
-
-// create work callback
-// this is called once at the start on pfind_rank 0
-// use to seed pfind_rank 0 with the initial dir to start
-// searching from
-static void find_create_work(CIRCLE_handle *handle) {
-    handle->enqueue(item_buf);
-}
-
-// process work callback
-static void find_process_work(CIRCLE_handle *handle)
-{
-    // dequeue the next item
-    handle->dequeue(item_buf);
-    if (*item_buf == 'd') {
-      find_do_readdir(item_buf, handle);
-    }else{
-      find_do_lstat(item_buf);
-    }
 }

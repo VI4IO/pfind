@@ -6,6 +6,7 @@
 #include "pfind-options.h"
 
 int pfind_rank;
+int pfind_size;
 
 int main(int argc, char ** argv){
   // output help with --help to enable running without mpiexec
@@ -20,6 +21,7 @@ int main(int argc, char ** argv){
 
   MPI_Init(&argc, &argv);
   MPI_Comm_rank(MPI_COMM_WORLD, & pfind_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, & pfind_size);
 
   pfind_options_t * options = pfind_parse_args(argc, argv, 0);
 

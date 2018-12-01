@@ -148,7 +148,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
       break;
     }
   }
-  if(res->verbosity > 1){
+  if(res->verbosity > 2 && pfind_rank == 0){
     printf("Regex: %s\n", res->name_pattern);
   }
 
