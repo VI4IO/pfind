@@ -61,38 +61,21 @@ static work_t * work;
 static int pending_work = 0;
 
 static int enqueue_work(char typ, char * path, char * entry){
-  assert(pending_work < opt->queue_length);
+  int ret = pending_work >= opt->queue_length;
+  if (ret){
+    return 1;
+  }
 
   work[pending_work].type = typ;
   sprintf(work[pending_work].name, "%s/%s", path, entry);
   //printf("Queuing: %s\n", work[pending_work].name);
   pending_work++;
-
-  return pending_work >= opt->queue_length;
+  return 0;
 }
 
 static void find_process_one_item(){
   if(open_dir){
-    if( opt->queue_length > pending_work + 5 ){
-      find_do_readdir(open_dir_name);
-    }else{
-      // the pending queue is still quite full
-      // search for files and attempt to free up to 10
-      int cleaned = 0;
-      for(int i=0 ; i < pending_work && cleaned < 10; i++){
-        work_t * w = & work[i];
-        if( w->type != 'd' ){
-          find_do_lstat(w->name);
-          work[i] = work[pending_work];
-          pending_work--;
-          i--;
-          cleaned++;
-        }
-      }
-      if(cleaned < 10){
-        printf("[%d] Warning: could only free %d queue elements!\n", pfind_rank, cleaned);
-      }
-    }
+    find_do_readdir(open_dir_name);
     return;
   }
 
@@ -438,8 +421,18 @@ static void find_do_readdir(char *path) {
           }
         }
         if(enqueue_work(typ, path, entry->d_name)){
-          open_dir = d;
-          strcpy(open_dir_name, path);
+          if(open_dir == NULL){
+            strcpy(open_dir_name, path);
+            open_dir = d;
+          }
+          char cur_path[PATH_MAX];
+          sprintf(cur_path, "%s/%s", path, entry->d_name);
+
+          if(typ == 'd'){
+            printf("[%d] WARNING, dropped processing of the directory %s as the queue is full\n", pfind_rank, cur_path);
+          }else{
+            find_do_lstat(cur_path);
+          }
           return;
         }
     }
