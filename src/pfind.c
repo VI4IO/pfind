@@ -13,18 +13,23 @@
 
 #include "pfind-options.h"
 
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#warning "Could not detect PATH_MAX"
+#endif
+
 #define MSG_COMPLETE 777
 #define MSG_JOB_STEAL 800
 #define MSG_JOB_STEAL_RESPONSE 820
 
-#define debug printf
-
+//#define debug printf
+#define debug(...)
 
 // this version is based on mpistat
 // parallel recursive find
 
 // globals
-static char start_dir[8192]; // absolute path of start directory
+static char start_dir[PATH_MAX]; // absolute path of start directory
 static int start_dir_length;
 static int msg_type_flag = 0;
 
@@ -34,7 +39,7 @@ static pfind_find_results_t * res = NULL;
 typedef struct{
   uint64_t    ctime_min;
   double      stonewall_endtime;
-  int         logfile;
+  FILE *      logfile;
   int         needs_stat;
 } pfind_runtime_options_t;
 
@@ -42,54 +47,38 @@ static pfind_runtime_options_t runtime;
 static void find_do_readdir(char *path);
 static void find_do_lstat(char *path);
 
-// a token indicating that I'm msg_type and other's to the left
-static int have_finalize_token = 0;
+typedef struct {
+  char type; // 'd' for directory
+  char name[PATH_MAX];
+} work_t;
+
+// queue of work
+static work_t * work;
+// amount of pending_work
 static int pending_work = 0;
-static int have_processed_work_after_token = 1;
 
-// process work callback
-static void find_process_work()
-{
-  MPI_Status status;
-  char item_buf[8192]; // buffer to construct type / path combos for queue items
-  int ret;
-  while(1){
-    ret = MPI_Recv(item_buf, 8192, MPI_CHAR, MPI_ANY_SOURCE, 4711, MPI_COMM_WORLD, & status);
-    if(opt->verbosity >= 2){
-      printf("Recvd %d: %s\n", pfind_rank, item_buf);
-    }
-
-    if (*item_buf == '0') {
-      // stop message
-      if( pfind_rank == 0){
-        for(int i=1; i < pfind_size; i++){
-          MPI_Send("0", 1, MPI_CHAR, i, 4711, MPI_COMM_WORLD);
-        }
-      }
-      return;
-    }else if (*item_buf == 'd') {
-      find_do_readdir(item_buf + 1);
-    }else{
-      find_do_lstat(item_buf + 1);
-    }
-  }
+static void enqueue_work(char typ, char * path, char * entry){
+  work[pending_work].type = typ;
+  sprintf(work[pending_work].name, "%s/%s", path, entry);
+  //printf("Queuing: %s\n", work[pending_work].name);
+  pending_work++;
 }
 
-static void pfind_send_random(int is_dir, char * dir, char * entry){
-  char item_buf[8192];
-  MPI_Request request;
-  int ret;
-  int rnd = rand() % pfind_size;
-  sprintf(item_buf, "%c%s/%s", is_dir ? 'd' : 'f', dir, entry);
-  if(opt->verbosity >= 2){
-    printf("%d->%d send: %s\n", pfind_rank, rnd, item_buf);
+static void find_process_one_item(){
+  pending_work--;
+  // opt->queue_length
+  work_t * cur = & work[pending_work];
+  if( cur->type == 'd'){
+    find_do_readdir(cur->name);
+  }else{
+    find_do_lstat(cur->name);
   }
-  ret = MPI_Isend(item_buf, strlen(item_buf) +1, MPI_CHAR, rnd, 4711, MPI_COMM_WORLD, & request);
 }
 
 #define CHECK_MPI if(ret != MPI_SUCCESS){ printf("ERROR in %d\n", __LINE__); exit (1); }
 
 pfind_find_results_t * pfind_find(pfind_options_t * lopt){
+
   opt = lopt;
   memset(& runtime, 0, sizeof(pfind_runtime_options_t));
   int ret;
@@ -109,20 +98,20 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     char outfile[10240];
     sprintf(outfile, "%s/%d.txt", opt->results_dir, pfind_rank);
     mkdir(opt->results_dir, S_IRWXU);
-    runtime.logfile = open(outfile, O_CREAT|O_WRONLY|O_TRUNC, S_IWUSR | S_IRUSR);
+    runtime.logfile = fopen(outfile, "w");
 
-    if(runtime.logfile == -1){
+    if(runtime.logfile == NULL){
       pfind_abort("Could not open output logfile!\n");
     }
   }else{
-    runtime.logfile = 2;
+    runtime.logfile = stdout;
   }
 
   if(opt->timestamp_file || opt->size != UINT64_MAX){
     runtime.needs_stat = 1;
   }
-
   //ior_aiori_t * backend = aiori_select(opt->backend_name);
+  work = malloc(sizeof(work_t) * opt->queue_length);
   double start = MPI_Wtime();
   char * err = realpath(opt->workdir, start_dir);
   res = malloc(sizeof(pfind_find_results_t));
@@ -140,21 +129,31 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   }
   start_dir_length = strlen(start_dir);
 
-  // startup
-  //MPI_Bsend("d/", 3, MPI_CHAR, 0, 4711, MPI_COMM_WORLD);
-  //find_process_work();
+  // startup, load current directory
+  if(pfind_rank == 0){
+    work[0].type = 'd';
+    work[0].name[0] = 0;
+    pending_work++;
+  }
 
-  have_finalize_token = (pfind_rank == 0);
-  int phase = 0; // 1 == potential cleanup; 2 == cleanup
-
-  pending_work = rand() % 10 + pfind_rank*10;
+  int have_finalize_token = (pfind_rank == 0);
+  // a token indicating that I'm msg_type and other's to the left
+  int have_processed_work_after_token = 1;
+  int phase = 0; // 1 == potential cleanup; 2 == stop query; 3 == terminate
 
   while(! msg_type_flag){
     //usleep(100000);
     debug("[%d] processing: %d [%d, %d, phase: %d]\n", pfind_rank, pending_work, have_finalize_token, have_processed_work_after_token, phase);
     // do we have more work?
     if(pending_work > 0){
-      pending_work--;
+      if (opt->stonewall_timer && MPI_Wtime() >= runtime.stonewall_endtime ){
+        if(opt->verbosity > 1){
+          printf("Hit stonewall at %.2fs\n", MPI_Wtime());
+        }
+        pending_work = 0;
+      }else{
+        find_process_one_item();
+      }
     }
 
     int has_msg;
@@ -203,7 +202,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
       debug("[%d] msg ready from %d !\n", pfind_rank, requesting_rank);
       int work_to_give = pending_work / 2;
       pending_work -= work_to_give;
-      ret = MPI_Send(& work_to_give, 1, MPI_INT, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+      ret = MPI_Send(& work[pending_work], sizeof(work_t)*work_to_give, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
       CHECK_MPI
     }
 
@@ -218,11 +217,15 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         CHECK_MPI
         // check for any pending work stealing request, too.
         while(1){
-          ret = MPI_Iprobe(steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, & has_msg, MPI_STATUS_IGNORE);
+          ret = MPI_Iprobe(steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, & has_msg, & wait_status);
           CHECK_MPI
           if(has_msg){
-            ret = MPI_Recv(& work_received, 1, MPI_INT, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Get_count(& wait_status, MPI_CHAR, & work_received);
+
+            ret = MPI_Recv(work, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             CHECK_MPI
+
+            work_received /= sizeof(work_t);
             break;
           }
           ret = MPI_Iprobe(MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & has_msg, MPI_STATUS_IGNORE);
@@ -231,9 +234,8 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
             ret = MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & wait_status);
             CHECK_MPI
             int requesting_rank = wait_status.MPI_SOURCE;
-            int nul = 0;
             debug("[%d] msg ready from %d, but no work pending!\n", pfind_rank, requesting_rank);
-            ret = MPI_Send(& nul, 1, MPI_INT, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+            ret = MPI_Send(NULL, 0, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
             CHECK_MPI
           }
         }
@@ -247,13 +249,13 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   }
   debug("[%d] ended\n", pfind_rank);
 
-
+  free(work);
 
   double end = MPI_Wtime();
   res->runtime = end - start;
 
-  if(runtime.logfile != 2){
-    close(runtime.logfile);
+  if(runtime.logfile != stdout){
+    fclose(runtime.logfile);
   }
 
   double runtime = res->runtime;
@@ -308,14 +310,14 @@ static void check_buf(struct stat buf, char * path){
         return;
       }
     }
-    if(runtime.logfile && ! opt->just_count){
-      printf("%s\n", path);
+    if(! opt->just_count){
+      fprintf(runtime.logfile, "%s\n", path);
     }
     res->found_files++;
 }
 
 static void find_do_lstat(char *path) {
-  char dir[8192];
+  char dir[PATH_MAX];
   sprintf(dir, "%s/%s", start_dir, path);
   struct stat buf;
   // filename comparison has been done already
@@ -327,24 +329,24 @@ static void find_do_lstat(char *path) {
     check_buf(buf, dir);
   } else {
     res->errors++;
-    if(runtime.logfile){
-      printf("Error stating file: %s\n", dir);
-    }
+    fprintf(runtime.logfile, "Error stating file: %s\n", dir);
   }
 }
 
 static void find_do_readdir(char *path) {
-    char dir[8192];
+    char dir[PATH_MAX];
     sprintf(dir, "%s%s", start_dir, path);
+    path = & dir[start_dir_length];
+
     DIR *d = opendir(dir);
     if (!d) {
-        if(runtime.logfile){
-          printf("Cannot open '%s': %s\n", dir, strerror (errno));
-        }
+        fprintf(runtime.logfile, "Cannot open '%s': %s\n", dir, strerror (errno));
         return;
     }
     int fd = dirfd(d);
     while (1) {
+        //printf("find_do_readdir %s - %s\n", dir, path);
+
         struct dirent *entry;
         entry = readdir(d);
         if (opt->stonewall_timer && MPI_Wtime() >= runtime.stonewall_endtime ){
@@ -353,7 +355,7 @@ static void find_do_readdir(char *path) {
           }
           break;
         }
-        if (entry==0) {
+        if (entry == 0) {
             break;
         }
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
@@ -362,13 +364,10 @@ static void find_do_readdir(char *path) {
         char typ = find_file_type(entry->d_type);
         if (typ == 'u'){
           // sometimes the filetype is not provided by readdir.
-
           struct stat buf;
           if (fstatat(fd, entry->d_name, & buf, 0 )) {
             res->errors++;
-            if(runtime.logfile){
-              printf("Error stating file: %s\n", dir);
-            }
+            fprintf(runtime.logfile, "Error stating file: %s\n", dir);
             continue;
           }
           typ = S_ISDIR(buf.st_mode) ? 'd' : 'f';
@@ -397,13 +396,13 @@ static void find_do_readdir(char *path) {
           if(! runtime.needs_stat){
             // optimization to skip stat
             res->found_files++;
-            if(runtime.logfile && ! opt->just_count){
-              printf("%s/%s\n", dir, entry->d_name);
+            if(! opt->just_count){
+              fprintf(runtime.logfile, "%s/%s\n", dir, entry->d_name);
             }
             continue;
           }
         }
-        pfind_send_random(typ == 'd', path, entry->d_name);
+        enqueue_work(typ, path, entry->d_name);
     }
     closedir(d);
 }
