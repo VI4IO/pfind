@@ -9,8 +9,16 @@
 #include <mpi.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include "pfind-options.h"
+
+#define MSG_COMPLETE 777
+#define MSG_JOB_STEAL 800
+#define MSG_JOB_STEAL_RESPONSE 820
+
+#define debug printf
+
 
 // this version is based on mpistat
 // parallel recursive find
@@ -18,6 +26,7 @@
 // globals
 static char start_dir[8192]; // absolute path of start directory
 static int start_dir_length;
+static int msg_type_flag = 0;
 
 static pfind_options_t * opt;
 static pfind_find_results_t * res = NULL;
@@ -32,6 +41,11 @@ typedef struct{
 static pfind_runtime_options_t runtime;
 static void find_do_readdir(char *path);
 static void find_do_lstat(char *path);
+
+// a token indicating that I'm msg_type and other's to the left
+static int have_finalize_token = 0;
+static int pending_work = 0;
+static int have_processed_work_after_token = 1;
 
 // process work callback
 static void find_process_work()
@@ -71,12 +85,14 @@ static void pfind_send_random(int is_dir, char * dir, char * entry){
     printf("%d->%d send: %s\n", pfind_rank, rnd, item_buf);
   }
   ret = MPI_Isend(item_buf, strlen(item_buf) +1, MPI_CHAR, rnd, 4711, MPI_COMM_WORLD, & request);
-
 }
+
+#define CHECK_MPI if(ret != MPI_SUCCESS){ printf("ERROR in %d\n", __LINE__); exit (1); }
 
 pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   opt = lopt;
   memset(& runtime, 0, sizeof(pfind_runtime_options_t));
+  int ret;
 
   if(opt->timestamp_file){
     if(pfind_rank==0) {
@@ -125,8 +141,113 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   start_dir_length = strlen(start_dir);
 
   // startup
-  MPI_Bsend("d/", 3, MPI_CHAR, 0, 4711, MPI_COMM_WORLD);
-  find_process_work();
+  //MPI_Bsend("d/", 3, MPI_CHAR, 0, 4711, MPI_COMM_WORLD);
+  //find_process_work();
+
+  have_finalize_token = (pfind_rank == 0);
+  int phase = 0; // 1 == potential cleanup; 2 == cleanup
+
+  pending_work = rand() % 10 + pfind_rank*10;
+
+  while(! msg_type_flag){
+    //usleep(100000);
+    debug("[%d] processing: %d [%d, %d, phase: %d]\n", pfind_rank, pending_work, have_finalize_token, have_processed_work_after_token, phase);
+    // do we have more work?
+    if(pending_work > 0){
+      pending_work--;
+    }
+
+    int has_msg;
+    // try to retrieve token from a neighboring process
+    int left_neighbor = pfind_rank == 0 ? pfind_size - 1 : (pfind_rank - 1);
+    ret = MPI_Iprobe(left_neighbor, MSG_COMPLETE, MPI_COMM_WORLD, & has_msg, MPI_STATUS_IGNORE);
+    CHECK_MPI
+    if(has_msg){
+      ret = MPI_Recv(& phase, 1, MPI_INT, left_neighbor, MSG_COMPLETE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      CHECK_MPI
+      have_finalize_token = 1;
+      debug("[%d] recvd finalize token\n", pfind_rank);
+    }
+
+    // we msg_type our last piece of work
+    if (pending_work == 0){
+      // Exit condition requesting_rank
+      int msg_ready = 0;
+      if (have_finalize_token){
+        if (have_processed_work_after_token){
+          phase = 0;
+        }else if(pfind_rank == 0){
+          phase++;
+        }
+        // send the finalize token to the right process
+        debug("[%d] forwarding token\n", pfind_rank);
+        ret = MPI_Bsend(& phase, 1, MPI_INT, (pfind_rank + 1) % pfind_size, MSG_COMPLETE, MPI_COMM_WORLD);
+        CHECK_MPI
+        // we received the finalization token
+        if (phase == 3){
+          break;
+        }
+        have_processed_work_after_token = 0;
+        have_finalize_token = 0;
+      }
+    }
+
+    MPI_Status wait_status;
+    // check for job-stealing request
+    ret = MPI_Iprobe(MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & has_msg, & wait_status);
+    CHECK_MPI
+    if(has_msg){
+      int requesting_rank = wait_status.MPI_SOURCE;
+      ret = MPI_Recv(NULL, 0, MPI_INT, requesting_rank, MSG_JOB_STEAL, MPI_COMM_WORLD, & wait_status);
+      CHECK_MPI
+      debug("[%d] msg ready from %d !\n", pfind_rank, requesting_rank);
+      int work_to_give = pending_work / 2;
+      pending_work -= work_to_give;
+      ret = MPI_Send(& work_to_give, 1, MPI_INT, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+      CHECK_MPI
+    }
+
+    int work_received = 0;
+    int steal_neighbor = pfind_rank;
+    if (pending_work == 0 && phase < 2){
+      // send request for job stealing
+      steal_neighbor = rand() % pfind_size;
+      if(steal_neighbor != pfind_rank){
+        debug("[%d] msg attempting to steal from %d\n", pfind_rank, steal_neighbor);
+        ret = MPI_Bsend(NULL, 0, MPI_INT, steal_neighbor, MSG_JOB_STEAL, MPI_COMM_WORLD);
+        CHECK_MPI
+        // check for any pending work stealing request, too.
+        while(1){
+          ret = MPI_Iprobe(steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, & has_msg, MPI_STATUS_IGNORE);
+          CHECK_MPI
+          if(has_msg){
+            ret = MPI_Recv(& work_received, 1, MPI_INT, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            CHECK_MPI
+            break;
+          }
+          ret = MPI_Iprobe(MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & has_msg, MPI_STATUS_IGNORE);
+          CHECK_MPI
+          if(has_msg){
+            ret = MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & wait_status);
+            CHECK_MPI
+            int requesting_rank = wait_status.MPI_SOURCE;
+            int nul = 0;
+            debug("[%d] msg ready from %d, but no work pending!\n", pfind_rank, requesting_rank);
+            ret = MPI_Send(& nul, 1, MPI_INT, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+            CHECK_MPI
+          }
+        }
+        debug("[%d] stole %d \n", pfind_rank, work_received);
+        pending_work = work_received;
+        if (work_received > 0){
+          have_processed_work_after_token = 1;
+        }
+      }
+    }
+  }
+  debug("[%d] ended\n", pfind_rank);
+
+
 
   double end = MPI_Wtime();
   res->runtime = end - start;
