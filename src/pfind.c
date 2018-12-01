@@ -52,19 +52,50 @@ typedef struct {
   char name[PATH_MAX];
 } work_t;
 
+static DIR * open_dir = NULL;
+static char open_dir_name[PATH_MAX];
+
 // queue of work
 static work_t * work;
 // amount of pending_work
 static int pending_work = 0;
 
-static void enqueue_work(char typ, char * path, char * entry){
+static int enqueue_work(char typ, char * path, char * entry){
+  assert(pending_work < opt->queue_length);
+
   work[pending_work].type = typ;
   sprintf(work[pending_work].name, "%s/%s", path, entry);
   //printf("Queuing: %s\n", work[pending_work].name);
   pending_work++;
+
+  return pending_work >= opt->queue_length;
 }
 
 static void find_process_one_item(){
+  if(open_dir){
+    if( opt->queue_length > pending_work + 5 ){
+      find_do_readdir(open_dir_name);
+    }else{
+      // the pending queue is still quite full
+      // search for files and attempt to free up to 10
+      int cleaned = 0;
+      for(int i=0 ; i < pending_work && cleaned < 10; i++){
+        work_t * w = & work[i];
+        if( w->type != 'd' ){
+          find_do_lstat(w->name);
+          work[i] = work[pending_work];
+          pending_work--;
+          i--;
+          cleaned++;
+        }
+      }
+      if(cleaned < 10){
+        printf("[%d] Warning: could only free %d queue elements!\n", pfind_rank, cleaned);
+      }
+    }
+    return;
+  }
+
   pending_work--;
   // opt->queue_length
   work_t * cur = & work[pending_work];
@@ -111,7 +142,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     runtime.needs_stat = 1;
   }
   //ior_aiori_t * backend = aiori_select(opt->backend_name);
-  work = malloc(sizeof(work_t) * opt->queue_length);
+  work = malloc(sizeof(work_t) * (opt->queue_length + 1 ));
   double start = MPI_Wtime();
   char * err = realpath(opt->workdir, start_dir);
   res = malloc(sizeof(pfind_find_results_t));
@@ -171,7 +202,6 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     // we msg_type our last piece of work
     if (pending_work == 0){
       // Exit condition requesting_rank
-      int msg_ready = 0;
       if (have_finalize_token){
         if (have_processed_work_after_token){
           phase = 0;
@@ -338,10 +368,15 @@ static void find_do_readdir(char *path) {
     sprintf(dir, "%s%s", start_dir, path);
     path = & dir[start_dir_length];
 
-    DIR *d = opendir(dir);
-    if (!d) {
-        fprintf(runtime.logfile, "Cannot open '%s': %s\n", dir, strerror (errno));
-        return;
+    DIR *d;
+    if( open_dir ){
+      d = open_dir;
+    }else{
+      d = opendir(dir);
+      if (!d) {
+          fprintf(runtime.logfile, "Cannot open '%s': %s\n", dir, strerror (errno));
+          return;
+      }
     }
     int fd = dirfd(d);
     while (1) {
@@ -402,7 +437,12 @@ static void find_do_readdir(char *path) {
             continue;
           }
         }
-        enqueue_work(typ, path, entry->d_name);
+        if(enqueue_work(typ, path, entry->d_name)){
+          open_dir = d;
+          strcpy(open_dir_name, path);
+          return;
+        }
     }
     closedir(d);
+    open_dir = NULL;
 }
