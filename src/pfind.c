@@ -387,7 +387,6 @@ static void find_do_readdir(char *path) {
         }
         char typ = find_file_type(entry->d_type);
         if (typ == 'u'){
-          printf("HERNES\n");
           res->unknown_file++;
           // sometimes the filetype is not provided by readdir.
           struct stat buf;
