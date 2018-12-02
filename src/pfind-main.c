@@ -30,7 +30,7 @@ int main(int argc, char ** argv){
     if(options->print_rates){
       printf("[DONE] rate: %.3f kiops time: %.1fs err: %ld found: %ld (scanned %ld files)\n",  find->rate / 1000, find->runtime, find->errors, find->found_files, find->total_files);
     }else{
-      printf("[DONE] found: %ld (scanned %ld files, err: %ld)\n", find->found_files, find->total_files, find->errors);
+      printf("[DONE] found: %ld (scanned %ld files, err: %ld, unknown_during_dirent:%ld)\n", find->found_files, find->total_files, find->errors, find->unknown_file);
     }
     printf("MATCHED %ld/%ld\n", find->found_files, find->total_files);
   }

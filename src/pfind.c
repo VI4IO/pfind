@@ -273,9 +273,12 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
 
   double runtime = res->runtime;
   long long found = res->found_files;
+  long long unknown_files = res->unknown_file;
   long long total_files = res->total_files;
   MPI_Reduce(& runtime, & res->runtime, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
   MPI_Reduce(& found, & res->found_files, 1, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(& unknown_files, & res->unknown_file, 1, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
   MPI_Reduce(& total_files, & res->total_files, 1, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
   res->rate = res->total_files / res->runtime;
@@ -357,7 +360,10 @@ static void find_do_readdir(char *path) {
     }else{
       d = opendir(dir);
       if (!d) {
-          fprintf(runtime.logfile, "Cannot open '%s': %s\n", dir, strerror (errno));
+          if(opt->verbosity > 1){
+            fprintf(runtime.logfile, "Cannot open '%s': %s\n", dir, strerror (errno));
+          }
+          res->errors++;
           return;
       }
     }
@@ -381,11 +387,15 @@ static void find_do_readdir(char *path) {
         }
         char typ = find_file_type(entry->d_type);
         if (typ == 'u'){
+          printf("HERNES\n");
+          res->unknown_file++;
           // sometimes the filetype is not provided by readdir.
           struct stat buf;
           if (fstatat(fd, entry->d_name, & buf, 0 )) {
             res->errors++;
-            fprintf(runtime.logfile, "Error stating file: %s\n", dir);
+            if(opt->verbosity > 1){
+              fprintf(runtime.logfile, "Error stating file: %s\n", dir);
+            }
             continue;
           }
           typ = S_ISDIR(buf.st_mode) ? 'd' : 'f';

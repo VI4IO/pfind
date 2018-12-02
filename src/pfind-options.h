@@ -27,6 +27,7 @@ typedef struct {
 
 typedef struct{
   uint64_t errors;
+  uint64_t unknown_file;
 
   uint64_t found_files;
   uint64_t total_files;
