@@ -196,6 +196,9 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         }else if(pfind_rank == 0){
           phase++;
         }
+        if( pfind_size == 1){
+          break;
+        }
         // send the finalize token to the right process
         debug("[%d] forwarding token\n", pfind_rank);
         ret = MPI_Bsend(& phase, 1, MPI_INT, (pfind_rank + 1) % pfind_size, MSG_COMPLETE, MPI_COMM_WORLD);
