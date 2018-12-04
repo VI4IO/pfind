@@ -11,6 +11,7 @@ typedef struct {
   // https://www.gnu.org/software/findutils/manual/html_mono/find.html
   char * workdir;
   int just_count;
+  int print_by_process;
   char * results_dir;
   int stonewall_timer;
   int print_rates;
@@ -37,6 +38,7 @@ typedef struct{
 } pfind_find_results_t;
 
 pfind_find_results_t * pfind_find(pfind_options_t * opt);
+pfind_find_results_t * pfind_aggregrate_results(pfind_find_results_t * local);
 pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help);
 void pfind_abort(char * str);
 

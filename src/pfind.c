@@ -92,7 +92,6 @@ static void find_process_one_item(){
 #define CHECK_MPI if(ret != MPI_SUCCESS){ printf("ERROR in %d\n", __LINE__); exit (1); }
 
 pfind_find_results_t * pfind_find(pfind_options_t * lopt){
-
   opt = lopt;
   memset(& runtime, 0, sizeof(pfind_runtime_options_t));
   int ret;
@@ -280,18 +279,21 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     fclose(runtime.logfile);
   }
 
-  double runtime = res->runtime;
-  long long found = res->found_files;
-  long long unknown_files = res->unknown_file;
-  long long total_files = res->total_files;
-  MPI_Reduce(& runtime, & res->runtime, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-  MPI_Reduce(& found, & res->found_files, 1, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-  MPI_Reduce(& unknown_files, & res->unknown_file, 1, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+  return res;
+}
 
-  MPI_Reduce(& total_files, & res->total_files, 1, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+pfind_find_results_t * pfind_aggregrate_results(pfind_find_results_t * local){
+  pfind_find_results_t * res = malloc(sizeof(pfind_find_results_t));
+  if(! res){
+    pfind_abort("No memory");
+  }
+  memcpy(res, local, sizeof(*res));
+
+
+  MPI_Reduce(pfind_rank == 0 ? MPI_IN_PLACE : & res->errors, & res->errors, 4, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(pfind_rank == 0 ? MPI_IN_PLACE : & res->runtime, & res->runtime, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
   res->rate = res->total_files / res->runtime;
-
   return res;
 }
 

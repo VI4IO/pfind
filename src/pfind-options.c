@@ -23,6 +23,7 @@ static void pfind_print_help(pfind_options_t * res){
       "\t-name|-regex = \"%s\"\n"
       "Optional flags\n"
       "\t-C: don't output file names just count the number of files found\n"
+      "\t-P: output per process for debugging and checks loadbalance\n"
       "\t-D [rates]: print rates\n"
       "\t-s <seconds>: Stonewall timer for find = %d\n"
       "\t-h: prints the help\n"
@@ -120,7 +121,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   }
 
   int c;
-  while ((c = getopt(argc, argv, "Cs:r:vhD:xq:")) != -1) {
+  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:")) != -1) {
     if (c == -1) {
         break;
     }
@@ -129,8 +130,12 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
     case 'x':
         /* ignore fake arg that we added when we processed the extra args */
         break;
+    case 'P':
+      res->print_by_process = 1;
+      break;
     case 'C':
-      res->just_count = 1; break;
+      res->just_count = 1;
+      break;
     case 'D':
       if(strcmp(optarg, "rates") == 0){
         res->print_rates = 1;
