@@ -10,10 +10,11 @@ int pfind_size;
 
 static void print_result(pfind_options_t * options, pfind_find_results_t * find, char * prefix){
   if(options->print_rates){
-    printf("[%s] rate: %.3f kiops time: %.1fs err: %ld found: %ld (scanned %ld files)\n", prefix, find->rate / 1000, find->runtime, find->errors, find->found_files, find->total_files);
+    printf("[%s] rate: %.3f kiops time: %.1fs", prefix, find->rate / 1000, find->runtime);
   }else{
-    printf("[%s] found: %ld (scanned %ld files, err: %ld, unknown_during_dirent:%ld)\n", prefix, find->found_files, find->total_files, find->errors, find->unknown_file);
+    printf("[%s]", prefix);
   }
+  printf(" found: %ld (scanned %ld files, scanned dirents: %ld, unknown dirents: %ld)\n", find->found_files, find->total_files, find->checked_dirents, find->unknown_file);
 }
 
 int main(int argc, char ** argv){

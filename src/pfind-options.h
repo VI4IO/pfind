@@ -33,6 +33,8 @@ typedef struct{
   uint64_t found_files;
   uint64_t total_files;
 
+  uint64_t checked_dirents;
+
   double rate;
   double runtime;
 } pfind_find_results_t;

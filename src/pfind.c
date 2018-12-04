@@ -289,8 +289,7 @@ pfind_find_results_t * pfind_aggregrate_results(pfind_find_results_t * local){
   }
   memcpy(res, local, sizeof(*res));
 
-
-  MPI_Reduce(pfind_rank == 0 ? MPI_IN_PLACE : & res->errors, & res->errors, 4, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(pfind_rank == 0 ? MPI_IN_PLACE : & res->errors, & res->errors, 5, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
   MPI_Reduce(pfind_rank == 0 ? MPI_IN_PLACE : & res->runtime, & res->runtime, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
   res->rate = res->total_files / res->runtime;
@@ -396,6 +395,8 @@ static void find_do_readdir(char *path) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
+        res->checked_dirents++;
+
         char typ = find_file_type(entry->d_type);
         if (typ == 'u'){
           res->unknown_file++;
