@@ -279,6 +279,8 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     fclose(runtime.logfile);
   }
 
+  res->rate = res->total_files / res->runtime;
+
   return res;
 }
 
