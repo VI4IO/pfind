@@ -121,6 +121,11 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     runtime.logfile = stdout;
   }
 
+  // allocate sufficient large buffer size, we may receive up to size unexpected "stealing" calls
+  int bsend_size = (pfind_size + 1) * MPI_BSEND_OVERHEAD;
+  char * bsend_buf = malloc( bsend_size );
+  MPI_Buffer_attach( bsend_buf, bsend_size );
+
   if(opt->timestamp_file || opt->size != UINT64_MAX){
     runtime.needs_stat = 1;
   }
@@ -263,6 +268,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   debug("[%d] ended\n", pfind_rank);
 
   free(work);
+  MPI_Buffer_detach(bsend_buf, & bsend_size);
 
   double end = MPI_Wtime();
   res->runtime = end - start;
