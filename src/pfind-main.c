@@ -6,6 +6,16 @@
 #include "pfind-options.h"
 
 int pfind_rank;
+int pfind_size;
+
+static void print_result(pfind_options_t * options, pfind_find_results_t * find, char * prefix){
+  if(options->print_rates){
+    printf("[%s] rate: %.3f kiops time: %.1fs", prefix, find->rate / 1000, find->runtime);
+  }else{
+    printf("[%s]", prefix);
+  }
+  printf(" found: %ld (scanned %ld files, scanned dirents: %ld, unknown dirents: %ld)\n", find->found_files, find->total_files, find->checked_dirents, find->unknown_file);
+}
 
 int main(int argc, char ** argv){
   // output help with --help to enable running without mpiexec
@@ -20,18 +30,25 @@ int main(int argc, char ** argv){
 
   MPI_Init(&argc, &argv);
   MPI_Comm_rank(MPI_COMM_WORLD, & pfind_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, & pfind_size);
 
   pfind_options_t * options = pfind_parse_args(argc, argv, 0);
 
   pfind_find_results_t * find = pfind_find(options);
-  if(pfind_rank == 0){
-    if(options->print_rates){
-      printf("[DONE] rate: %.3f kiops time: %.1fs err: %ld found: %ld (scanned %ld files)\n",  find->rate / 1000, find->runtime, find->errors, find->found_files, find->total_files);
-    }else{
-      printf("[DONE] found: %ld (scanned %ld files, err: %ld)\n", find->found_files, find->total_files, find->errors);
-    }
-    printf("MATCHED %ld/%ld\n", find->found_files, find->total_files);
+
+  if (options->print_by_process){
+    char rank[15];
+    sprintf(rank, "%d", pfind_rank);
+    print_result(options, find, rank);
   }
+
+  pfind_find_results_t * aggregated = pfind_aggregrate_results(find);
+  if(pfind_rank == 0){
+    print_result(options, aggregated, "DONE");
+    printf("MATCHED %ld/%ld\n", aggregated->found_files, aggregated->total_files);
+  }
+
+  free(find);
 
   MPI_Finalize();
   return 0;

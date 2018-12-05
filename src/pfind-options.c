@@ -22,19 +22,22 @@ static void pfind_print_help(pfind_options_t * res){
       "\t-newer = \"%s\"\n"
       "\t-name|-regex = \"%s\"\n"
       "Optional flags\n"
-      "\t-C: don't ouput file names just count the number of files found\n"
+      "\t-C: don't output file names just count the number of files found\n"
+      "\t-P: output per process for debugging and checks loadbalance\n"
       "\t-D [rates]: print rates\n"
       "\t-s <seconds>: Stonewall timer for find = %d\n"
       "\t-h: prints the help\n"
       "\t--help: prints the help without initializing MPI\n"
       "\t-r <results_dir>: Where to store results = %s\n"
-      "\t-v: increase the verbosity, use multiple times to increase level = %d\n",
+      "\t-v: increase the verbosity, use multiple times to increase level = %d\n"
+      "\t-q: queue length (max pending ops) = %d\n",
       res->workdir,
       res->timestamp_file,
       res->name_pattern,
       res->stonewall_timer,
       res->results_dir,
-      res->verbosity
+      res->verbosity,
+      res->queue_length
     );
 }
 
@@ -44,11 +47,12 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   int print_help = force_print_help;
 
   res->workdir = "./";
-  res->results_dir = "./pfind-results/";
+  res->results_dir = NULL;
   res->verbosity = 0;
   res->timestamp_file = NULL;
   res->name_pattern = NULL;
   res->size = UINT64_MAX;
+  res->queue_length = 100000;
   char * firstarg = NULL;
 
   #define NONE_STR "-x"
@@ -117,7 +121,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   }
 
   int c;
-  while ((c = getopt(argc, argv, "Cs:r:vhD:x")) != -1) {
+  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:")) != -1) {
     if (c == -1) {
         break;
     }
@@ -126,8 +130,12 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
     case 'x':
         /* ignore fake arg that we added when we processed the extra args */
         break;
+    case 'P':
+      res->print_by_process = 1;
+      break;
     case 'C':
-      res->just_count = 1; break;
+      res->just_count = 1;
+      break;
     case 'D':
       if(strcmp(optarg, "rates") == 0){
         res->print_rates = 1;
@@ -139,6 +147,12 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
       print_help = 1; break;
     case 'r':
       res->results_dir = strdup(optarg); break;
+    case 'q':
+      res->queue_length = atoi(optarg); break;
+      if(res->queue_length < 10){
+        pfind_abort("Queue must be at least 10 elements!\n");
+      }
+      break;
     case 's':
       res->stonewall_timer = atol(optarg);
       break;
@@ -148,7 +162,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
       break;
     }
   }
-  if(res->verbosity > 1){
+  if(res->verbosity > 2 && pfind_rank == 0){
     printf("Regex: %s\n", res->name_pattern);
   }
 
