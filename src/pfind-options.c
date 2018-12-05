@@ -53,6 +53,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   res->name_pattern = NULL;
   res->size = UINT64_MAX;
   res->queue_length = 100000;
+  res->max_dirs_per_iter = 1000;
   char * firstarg = NULL;
 
   #define NONE_STR "-x"
