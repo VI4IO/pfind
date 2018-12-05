@@ -11,6 +11,10 @@
 #include <unistd.h>
 #include <assert.h>
 
+#ifdef LZ4
+#include <lz4.h>
+#endif
+
 #include "pfind-options.h"
 
 #ifndef PATH_MAX
@@ -134,6 +138,12 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   char * err = realpath(opt->workdir, start_dir);
   res = malloc(sizeof(pfind_find_results_t));
   memset(res, 0, sizeof(*res));
+
+  #ifdef LZ4
+    int max_compressed = LZ4_COMPRESSBOUND(opt->queue_length * sizeof(work_t) / 2);
+    char * compress_buf = malloc(max_compressed);
+  #endif
+
   if(opt->stonewall_timer != 0){
     runtime.stonewall_endtime = MPI_Wtime() + opt->stonewall_timer;
   }else{
@@ -224,7 +234,20 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         debug("[%d] msg ready from %d !\n", pfind_rank, requesting_rank);
         int work_to_give = pending_work / 2;
         pending_work -= work_to_give;
-        ret = MPI_Send(& work[pending_work], sizeof(work_t)*work_to_give, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+
+        int datasize = sizeof(work_t)*work_to_give;
+
+        #ifndef LZ4
+          ret = MPI_Send(& work[pending_work], datasize, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+        #else
+        if(datasize > 0){
+          int compressed_size;
+          compressed_size = LZ4_compress_default((char*) & work[pending_work], compress_buf, datasize, max_compressed);
+          ret = MPI_Send(compress_buf, compressed_size, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+        }else{
+          ret = MPI_Send(NULL, 0, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+        }
+        #endif
         CHECK_MPI
       }
     }
@@ -245,7 +268,18 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
           if(has_msg){
             MPI_Get_count(& wait_status, MPI_CHAR, & work_received);
 
-            ret = MPI_Recv(work, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            #ifndef LZ4
+              ret = MPI_Recv(work, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            #else
+            if(work_received > 0){
+              ret = MPI_Recv(compress_buf, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+              int decompressed_size = LZ4_decompress_safe (compress_buf, (char*)work, work_received, max_compressed);
+              //printf("Before: %d after: %d\n", datasize, compressed_size);
+              work_received = decompressed_size;
+            }else{
+              ret = MPI_Recv(work, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            }
+            #endif
             CHECK_MPI
 
             work_received /= sizeof(work_t);
@@ -271,6 +305,10 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     }
   }
   debug("[%d] ended\n", pfind_rank);
+
+  #ifdef LZ4
+  free(compress_buf);
+  #endif
 
   free(work);
   MPI_Buffer_detach(bsend_buf, & bsend_size);
