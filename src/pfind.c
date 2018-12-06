@@ -394,6 +394,8 @@ static void find_do_lstat(char *path) {
     printf("STAT: %s\n", dir);
   }
 
+  res->total_files++;
+
   if (lstat(dir, & buf) == 0) {
     check_buf(buf, dir);
   } else {
@@ -476,15 +478,16 @@ static void find_do_readdir(char *path) {
             continue;
           }
         }else if (typ != 'd'){
-          res->total_files++;
           // compare file name
           if(opt->name_pattern && regexec(& opt->name_regex, entry->d_name, 0, NULL, 0) ){
+            res->total_files++;
             if(opt->verbosity >= 2){
               printf("Name does not match: %s\n", entry->d_name);
             }
             continue;
           }
           if(! runtime.needs_stat){
+            res->total_files++;
             // optimization to skip stat
             res->found_files++;
             if(! opt->just_count){
