@@ -2,7 +2,7 @@
 # This script builds the optional parallel find
 
 CC=mpicc
-CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99"
+CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow"
 LDFLAGS=""
 
 rm *.o 2>&1 || true
