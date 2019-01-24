@@ -64,6 +64,15 @@ static work_t * work;
 // amount of pending_work
 static int pending_work = 0;
 
+static void* smalloc(size_t size){
+  void * p = malloc(size);
+  if(p == NULL){
+    printf("Cannot allocate %zd bytes of memory\nAborting\n", size);
+    exit(1);
+  }
+  return p;
+}
+
 static int enqueue_work(char typ, char * path, char * entry){
   int ret = pending_work >= opt->queue_length;
   if (ret){
@@ -126,22 +135,22 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
 
   // allocate sufficient large buffer size, we may receive up to size unexpected "stealing" calls
   int bsend_size = (pfind_size + 1) * MPI_BSEND_OVERHEAD;
-  char * bsend_buf = malloc( bsend_size );
+  char * bsend_buf = smalloc( bsend_size );
   MPI_Buffer_attach( bsend_buf, bsend_size );
 
   if(opt->timestamp_file || opt->size != UINT64_MAX){
     runtime.needs_stat = 1;
   }
   //ior_aiori_t * backend = aiori_select(opt->backend_name);
-  work = malloc(sizeof(work_t) * (opt->queue_length + 1 ));
+  work = smalloc(sizeof(work_t) * (opt->queue_length + 1 ));
   double start = MPI_Wtime();
   char * err = realpath(opt->workdir, start_dir);
-  res = malloc(sizeof(pfind_find_results_t));
+  res = smalloc(sizeof(pfind_find_results_t));
   memset(res, 0, sizeof(*res));
 
   #ifdef LZ4
     int max_compressed = LZ4_COMPRESSBOUND(opt->queue_length * sizeof(work_t) / 2);
-    char * compress_buf = malloc(max_compressed);
+    char * compress_buf = smalloc(max_compressed);
   #endif
 
   if(opt->stonewall_timer != 0){
@@ -326,7 +335,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
 }
 
 pfind_find_results_t * pfind_aggregrate_results(pfind_find_results_t * local){
-  pfind_find_results_t * res = malloc(sizeof(pfind_find_results_t));
+  pfind_find_results_t * res = smalloc(sizeof(pfind_find_results_t));
   if(! res){
     pfind_abort("No memory");
   }
