@@ -22,6 +22,7 @@ static void pfind_print_help(pfind_options_t * res){
       "\t-newer = \"%s\"\n"
       "\t-name|-regex = \"%s\"\n"
       "Optional flags\n"
+      "\t-N: steal with 50%% likelihood from the next process instead of randomly\n"
       "\t-C: don't output file names just count the number of files found\n"
       "\t-P: output per process for debugging and checks loadbalance\n"
       "\t-D [rates]: print rates\n"
@@ -122,12 +123,15 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   }
 
   int c;
-  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:")) != -1) {
+  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:N")) != -1) {
     if (c == -1) {
         break;
     }
 
     switch (c) {
+    case 'N':
+      res->steal_from_next = 1;
+      break;
     case 'x':
         /* ignore fake arg that we added when we processed the extra args */
         break;

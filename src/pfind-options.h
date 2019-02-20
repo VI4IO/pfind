@@ -23,6 +23,7 @@ typedef struct {
   // optimizing parameters
   int queue_length;
   int max_dirs_per_iter;
+  int steal_from_next; // if true, then steal from the next process
 
   int verbosity;
 } pfind_options_t;
