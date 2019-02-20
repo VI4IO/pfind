@@ -265,7 +265,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     int steal_neighbor = pfind_rank;
     if (pending_work == 0 && phase < 2){
       // send request for job stealing
-      steal_neighbor = rand() % pfind_size;
+      steal_neighbor = ((rand() % 2) && (pfind_rank > 0)) ? pfind_rank - 1 : rand() % pfind_size;
       if(steal_neighbor != pfind_rank){
         debug("[%d] msg attempting to steal from %d\n", pfind_rank, steal_neighbor);
         ret = MPI_Bsend(NULL, 0, MPI_INT, steal_neighbor, MSG_JOB_STEAL, MPI_COMM_WORLD);
