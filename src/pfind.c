@@ -89,6 +89,9 @@ static int enqueue_work(char typ, char * path, char * entry){
 static void find_process_one_item(){
   if(open_dir){
     find_do_readdir(open_dir_name);
+    if(open_dir == NULL){
+      pending_work--; // now the directory is finally completed!
+    }
     return;
   }
 
@@ -97,6 +100,9 @@ static void find_process_one_item(){
   work_t * cur = & work[pending_work];
   if( cur->type == 'd'){
     find_do_readdir(cur->name);
+    if(open_dir != NULL){
+      pending_work++; // special case, we have one more workitem TODO, this directory is not finished
+    }
   }else{
     find_do_lstat(cur->name);
   }
@@ -182,7 +188,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     //usleep(100000);
     debug("[%d] processing: %d [%d, %d, phase: %d]\n", pfind_rank, pending_work, have_finalize_token, have_processed_work_after_token, phase);
     // do we have more work?
-    if(pending_work > 0 || open_dir != NULL ){
+    if(pending_work > 0 ){
       if (opt->stonewall_timer && MPI_Wtime() >= runtime.stonewall_endtime ){
         if(opt->verbosity > 1){
           printf("Hit stonewall at %.2fs\n", MPI_Wtime());
@@ -206,7 +212,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     }
 
     // we msg_type our last piece of work
-    if (pending_work == 0 && open_dir == NULL ){
+    if (pending_work == 0 ){
       // Exit condition requesting_rank
       if (have_finalize_token){
         if (have_processed_work_after_token){
