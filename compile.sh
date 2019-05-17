@@ -1,7 +1,7 @@
 #!/bin/bash -e
 # This script builds the optional parallel find
 
-CC=mpicc
+CC="${CC:-mpicc}"
 CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow"
 LDFLAGS=""
 
