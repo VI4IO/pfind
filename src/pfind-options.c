@@ -54,7 +54,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   res->name_pattern = NULL;
   res->size = UINT64_MAX;
   res->queue_length = 100000;
-  res->max_dirs_per_iter = 1000;
+  res->max_dirs_per_iter = 10000;
   char * firstarg = NULL;
 
   #define NONE_STR "-x"
@@ -123,7 +123,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
   }
 
   int c;
-  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:N")) != -1) {
+  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:NM:")) != -1) {
     if (c == -1) {
         break;
     }
@@ -163,6 +163,8 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help)
       break;
     case 'v':
       res->verbosity++; break;
+    case 'M':
+      res->max_dirs_per_iter = atol(optarg); break;
     case 0:
       break;
     }
