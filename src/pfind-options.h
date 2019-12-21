@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <regex.h>
+#include <mpi.h>
 
 extern int pfind_rank;
 extern int pfind_size;
@@ -44,7 +45,7 @@ typedef struct{
 
 pfind_find_results_t * pfind_find(pfind_options_t * opt);
 pfind_find_results_t * pfind_aggregrate_results(pfind_find_results_t * local);
-pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help);
+pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help, MPI_Comm com);
 void pfind_abort(char * str);
 
 #ifndef UINT64_MAX

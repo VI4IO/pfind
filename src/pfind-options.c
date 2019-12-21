@@ -42,7 +42,12 @@ static void pfind_print_help(pfind_options_t * res){
     );
 }
 
-pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help){
+pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help, MPI_Comm com){
+  if(com != MPI_COMM_SELF){
+    MPI_Comm_rank(com, & pfind_rank);
+    MPI_Comm_size(com, & pfind_size);
+  }
+
   pfind_options_t * res = malloc(sizeof(pfind_options_t));
   memset(res, 0, sizeof(pfind_options_t));
   int print_help = force_print_help;
