@@ -70,6 +70,7 @@ static int pending_work = 0;
 
 static void* smalloc(size_t size){
   void * p = malloc(size);
+  memset(p, 0, size);
   if(p == NULL){
     printf("Cannot allocate %zd bytes of memory\nAborting\n", size);
     exit(1);
@@ -258,7 +259,9 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
 
         #ifndef LZ4
           ret = MPI_Send(& work[pending_work], datasize, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+
         #else
+
         if(datasize > 0){
           int compressed_size;
           compressed_size = LZ4_compress_default((char*) & work[pending_work], compress_buf, datasize, max_compressed);
