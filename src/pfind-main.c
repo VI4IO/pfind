@@ -24,16 +24,14 @@ int main(int argc, char ** argv){
     if (strcmp(argv[i], "--help") == 0){
       argv[i][0] = 0;
       pfind_rank = 0;
-      pfind_parse_args(argc, argv, 1);
+      pfind_parse_args(argc, argv, 1, MPI_COMM_SELF);
       exit(0);
     }
   }
 
   MPI_Init(&argc, &argv);
-  MPI_Comm_rank(MPI_COMM_WORLD, & pfind_rank);
-  MPI_Comm_size(MPI_COMM_WORLD, & pfind_size);
 
-  pfind_options_t * options = pfind_parse_args(argc, argv, 0);
+  pfind_options_t * options = pfind_parse_args(argc, argv, 0, MPI_COMM_WORLD);
 
   pfind_find_results_t * find = pfind_find(options);
 

@@ -26,6 +26,10 @@
 #define MSG_JOB_STEAL 800
 #define MSG_JOB_STEAL_RESPONSE 820
 
+
+int pfind_rank;
+int pfind_size;
+
 //#define debug printf
 #define debug(...)
 
