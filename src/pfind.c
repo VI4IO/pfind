@@ -52,7 +52,7 @@ typedef struct{
 } pfind_runtime_options_t;
 
 static pfind_runtime_options_t runtime;
-static void find_do_readdir(char *path);
+static int find_do_readdir(char *path);
 static void find_do_lstat(char *path);
 
 typedef struct {
@@ -60,11 +60,25 @@ typedef struct {
   char name[PATH_MAX];
 } work_t;
 
+typedef struct { // a directory work item, that is fetched in excess of processing capabilities
+  char name[PATH_MAX];
+} work_dir_t;
+
+typedef struct{
+  work_dir_t * dirs;
+  int capacity;
+  int size;
+} work_excess_dir_t;
+
 static DIR * open_dir = NULL;
 static char open_dir_name[PATH_MAX];
 
 // queue of work
 static work_t * work;
+
+// additional directories
+work_excess_dir_t excess_dirs = {NULL, 0, 0};
+
 // amount of pending_work
 static int pending_work = 0;
 
@@ -76,6 +90,18 @@ static void* smalloc(size_t size){
     exit(1);
   }
   return p;
+}
+
+static void enqueue_dir_excess(char * path, char * entry){
+
+  if(excess_dirs.capacity == excess_dirs.size){
+    int newcapacity = excess_dirs.size * 2 + 5;
+    excess_dirs.dirs = realloc(excess_dirs.dirs, newcapacity * sizeof(work_dir_t));
+    excess_dirs.capacity = newcapacity;
+  }
+  sprintf(excess_dirs.dirs[excess_dirs.size].name, "%s/%s", path, entry);
+
+  excess_dirs.size++;
 }
 
 static int enqueue_work(char typ, char * path, char * entry){
@@ -94,20 +120,20 @@ static int enqueue_work(char typ, char * path, char * entry){
 static void find_process_one_item(){
   if(open_dir){
     find_do_readdir(open_dir_name);
-    if(open_dir == NULL){
-      pending_work--; // now the directory is finally completed!
-    }
     return;
   }
 
-  pending_work--;
   // opt->queue_length
+  if(excess_dirs.size > 0){
+    excess_dirs.size--;
+    find_do_readdir(excess_dirs.dirs[excess_dirs.size].name);
+    return;
+  }
+  pending_work--;
+
   work_t * cur = & work[pending_work];
   if( cur->type == 'd'){
     find_do_readdir(cur->name);
-    if(open_dir != NULL){
-      pending_work++; // special case, we have one more workitem TODO, this directory is not finished
-    }
   }else{
     find_do_lstat(cur->name);
   }
@@ -217,7 +243,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     }
 
     // we msg_type our last piece of work
-    if (pending_work == 0 ){
+    if (pending_work == 0 && excess_dirs.size == 0 && open_dir == NULL){
       // Exit condition requesting_rank
       if (have_finalize_token){
         if (have_processed_work_after_token){
@@ -252,10 +278,10 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         ret = MPI_Recv(NULL, 0, MPI_INT, requesting_rank, MSG_JOB_STEAL, MPI_COMM_WORLD, & wait_status);
         CHECK_MPI
         debug("[%d] msg ready from %d !\n", pfind_rank, requesting_rank);
-        int work_to_give = pending_work / 2;
-        pending_work -= work_to_give;
 
+        int work_to_give = pending_work / 2;
         int datasize = sizeof(work_t)*work_to_give;
+        pending_work -= work_to_give;
 
         #ifndef LZ4
           ret = MPI_Send(& work[pending_work], datasize, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
@@ -271,6 +297,19 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         }
         #endif
         CHECK_MPI
+
+        // move excess directory queue into the regular queue
+        if(excess_dirs.size > 0){
+
+          int to_move = work_to_give < excess_dirs.size ? work_to_give : excess_dirs.size;
+          int ex_pos = excess_dirs.size - 1;
+          //printf("Move %d ex_pos: %d Move: %d\n", pending_work, ex_pos, to_move);
+          for(int i = 0 ; i < to_move; i++, pending_work++, ex_pos--){
+            work[pending_work].type = 'd';
+            strcpy(work[pending_work].name, excess_dirs.dirs[ex_pos].name);
+          }
+          excess_dirs.size -= to_move;
+        }
       }
     }
 
@@ -430,7 +469,7 @@ static void find_do_lstat(char *path) {
   }
 }
 
-static void find_do_readdir(char *path) {
+static int find_do_readdir(char *path) {
     char dir[PATH_MAX];
     sprintf(dir, "%s%s", start_dir, path);
     path = & dir[start_dir_length];
@@ -445,20 +484,21 @@ static void find_do_readdir(char *path) {
             fprintf(runtime.logfile, "Cannot open '%s': %s\n", dir, strerror (errno));
           }
           res->errors++;
-          return;
+          return 0;
       }
     }
     int fd = dirfd(d);
     int processed = 0;
+
     while (1) {
         //printf("find_do_readdir %s - %s\n", dir, path);
         if(processed > opt->max_dirs_per_iter){
-          // break criteria to allow contination of job stealing and such
+          // break criteria to allow continuation of job stealing and such
           if(open_dir == NULL){
             strcpy(open_dir_name, path);
             open_dir = d;
           }
-          return;
+          return 1;
         }
         struct dirent *entry;
         entry = readdir(d);
@@ -523,22 +563,29 @@ static void find_do_readdir(char *path) {
           }
         }
 
+        // we need to perform a stat operation
         if(enqueue_work(typ, path, entry->d_name)){
           if(open_dir == NULL){
             strcpy(open_dir_name, path);
             open_dir = d;
           }
-          char cur_path[PATH_MAX];
-          sprintf(cur_path, "%s/%s", path, entry->d_name);
 
           if(typ == 'd'){
-            printf("[%d] WARNING, dropped processing of the directory %s as the queue is full\n", pfind_rank, cur_path);
+            static int printed_warning = 0;
+            if(! printed_warning){
+              printf("[%d] WARNING, utilizing excess queue for processing of the directory %s as the queue is full, supressing further messages. This may lead to suboptimal performance. Try to increase the queue size.\n", pfind_rank, entry->d_name);
+              printed_warning = 1;
+            }
+            enqueue_dir_excess(path, entry->d_name);
           }else{
+            char cur_path[PATH_MAX];
+            sprintf(cur_path, "%s/%s", path, entry->d_name);
             find_do_lstat(cur_path);
           }
-          return;
+          return 1;
         }
     }
     closedir(d);
     open_dir = NULL;
+    return 0;
 }
