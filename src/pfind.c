@@ -528,7 +528,7 @@ static int find_do_readdir(char *path, uint64_t dir_start, uint64_t dir_end) {
       }
       if(opt->parallel_single_dir_access){
         if(dir_start == 0 && dir_end == 0){
-          dir_end = -1;
+          dir_end = 1lu<<63;
         }
         if(dir_start != 0){
           seekdir(d, dir_start);
