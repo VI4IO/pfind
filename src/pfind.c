@@ -52,12 +52,14 @@ typedef struct{
 } pfind_runtime_options_t;
 
 static pfind_runtime_options_t runtime;
-static int find_do_readdir(char *path);
+static int find_do_readdir(char *path, uint64_t dir_start, uint64_t dir_end);
 static void find_do_lstat(char *path);
 
 typedef struct {
-  char type; // 'd' for directory
   char name[PATH_MAX];
+  uint64_t dir_start; // start position to read a directory
+  uint64_t dir_end;   // end position to read a directory
+  char type; // 'd' for directory
 } work_t;
 
 typedef struct { // a directory work item, that is fetched in excess of processing capabilities
@@ -70,8 +72,14 @@ typedef struct{
   int size;
 } work_excess_dir_t;
 
-static DIR * open_dir = NULL;
-static char open_dir_name[PATH_MAX];
+typedef struct{
+  DIR * dir;
+  char name[PATH_MAX];
+  uint64_t pos_cur;
+  uint64_t pos_end;
+} currently_processed_dir_t;
+
+static currently_processed_dir_t current_dir = {NULL};
 
 // queue of work
 static work_t * work;
@@ -111,6 +119,8 @@ static int enqueue_work(char typ, char * path, char * entry){
   }
 
   work[pending_work].type = typ;
+  work[pending_work].dir_end = 0;
+  work[pending_work].dir_start = 0;
   sprintf(work[pending_work].name, "%s/%s", path, entry);
   //printf("Queuing: %s\n", work[pending_work].name);
   pending_work++;
@@ -118,22 +128,22 @@ static int enqueue_work(char typ, char * path, char * entry){
 }
 
 static void find_process_one_item(){
-  if(open_dir){
-    find_do_readdir(open_dir_name);
+  if(current_dir.dir){
+    find_do_readdir(current_dir.name, current_dir.pos_cur, current_dir.pos_end);
     return;
   }
 
   // opt->queue_length
   if(excess_dirs.size > 0){
     excess_dirs.size--;
-    find_do_readdir(excess_dirs.dirs[excess_dirs.size].name);
+    find_do_readdir(excess_dirs.dirs[excess_dirs.size].name, 0, 0);
     return;
   }
   pending_work--;
 
   work_t * cur = & work[pending_work];
   if( cur->type == 'd'){
-    find_do_readdir(cur->name);
+    find_do_readdir(cur->name, cur->dir_start, cur->dir_end);
   }else{
     find_do_lstat(cur->name);
   }
@@ -243,7 +253,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     }
 
     // we msg_type our last piece of work
-    if (pending_work == 0 && excess_dirs.size == 0 && open_dir == NULL){
+    if (pending_work == 0 && excess_dirs.size == 0 && current_dir.dir == NULL){
       // Exit condition requesting_rank
       if (have_finalize_token){
         if (have_processed_work_after_token){
@@ -280,8 +290,15 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         debug("[%d] msg ready from %d !\n", pfind_rank, requesting_rank);
 
         int work_to_give = pending_work / 2;
+        printf("%d %p\n", pending_work, current_dir.dir);
+        if(pending_work == 1 && current_dir.dir != NULL){
+          // split the directory
+          printf("SPLITTING NEEDED\n");
+        }
+
         int datasize = sizeof(work_t)*work_to_give;
         pending_work -= work_to_give;
+
 
         #ifndef LZ4
           ret = MPI_Send(& work[pending_work], datasize, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
@@ -306,6 +323,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
           //printf("Move %d ex_pos: %d Move: %d\n", pending_work, ex_pos, to_move);
           for(int i = 0 ; i < to_move; i++, pending_work++, ex_pos--){
             work[pending_work].type = 'd';
+            work[pending_work].dir_start = 0;
             strcpy(work[pending_work].name, excess_dirs.dirs[ex_pos].name);
           }
           excess_dirs.size -= to_move;
@@ -469,14 +487,14 @@ static void find_do_lstat(char *path) {
   }
 }
 
-static int find_do_readdir(char *path) {
+static int find_do_readdir(char *path, uint64_t dir_start, uint64_t dir_end) {
     char dir[PATH_MAX];
     sprintf(dir, "%s%s", start_dir, path);
     path = & dir[start_dir_length];
 
     DIR *d;
-    if( open_dir ){
-      d = open_dir;
+    if( current_dir.dir ){
+      d = current_dir.dir;
     }else{
       d = opendir(dir);
       if (!d) {
@@ -486,18 +504,34 @@ static int find_do_readdir(char *path) {
           res->errors++;
           return 0;
       }
+      if(opt->hash_single_dir_access){
+        if(dir_start == 0 && dir_end == 0){
+          dir_end = -1;
+        }
+        if(dir_start != 0){
+          seekdir(d, dir_start);
+        }
+      }
     }
     int fd = dirfd(d);
     int processed = 0;
 
     while (1) {
+        uint64_t pos = telldir(d);
+        if(opt->hash_single_dir_access && pos >= dir_end){
+          // done processing with hashing
+          closedir(d);
+          current_dir.dir = NULL;
+          return 0;
+        }
         //printf("find_do_readdir %s - %s\n", dir, path);
-        if(processed > opt->max_dirs_per_iter){
+        if(processed > opt->max_entries_per_iter){
           // break criteria to allow continuation of job stealing and such
-          if(open_dir == NULL){
-            strcpy(open_dir_name, path);
-            open_dir = d;
+          if(current_dir.dir == NULL){
+            strcpy(current_dir.name, path);
+            current_dir.dir = d;
           }
+          current_dir.pos_cur = pos;
           return 1;
         }
         struct dirent *entry;
@@ -565,9 +599,9 @@ static int find_do_readdir(char *path) {
 
         // we need to perform a stat operation
         if(enqueue_work(typ, path, entry->d_name)){
-          if(open_dir == NULL){
-            strcpy(open_dir_name, path);
-            open_dir = d;
+          if(current_dir.dir == NULL){
+            strcpy(current_dir.name, path);
+            current_dir.dir = d;
           }
 
           if(typ == 'd'){
@@ -586,6 +620,6 @@ static int find_do_readdir(char *path) {
         }
     }
     closedir(d);
-    open_dir = NULL;
+    current_dir.dir = NULL;
     return 0;
 }
