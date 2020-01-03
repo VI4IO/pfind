@@ -23,8 +23,9 @@ typedef struct {
   uint64_t size;
   // optimizing parameters
   int queue_length;
-  int max_dirs_per_iter;
+  int max_entries_per_iter;
   int steal_from_next; // if true, then steal from the next process
+  int parallel_single_dir_access; // if 1, use hashing to parallelize single directory access, if 2 sequential increment
 
   int verbosity;
 } pfind_options_t;
