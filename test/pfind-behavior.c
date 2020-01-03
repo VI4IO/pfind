@@ -52,7 +52,7 @@ void u_check_dir_behavior(char * const dirname, dir_seek_behavior * behave){
 
   DIR * dir = opendir(dirname);
   assert(dir != NULL);
-  long pos;
+  long long unsigned pos;
   long last = 0;
 
   struct dirent * de;
@@ -75,21 +75,23 @@ void u_check_dir_behavior(char * const dirname, dir_seek_behavior * behave){
   behave->decrementing = decrementing;
   behave->incrementing = incrementing;
 
-  dir = opendir(dirname);
   int hash_worked = 0;
+
+  printf("%lu\n", sizeof(long));
 
   // explore binary search space:
   for(int i=0; i < 64; i++){
-    unsigned long loc = 1l<<i;
+    unsigned long long loc = 1l<<i;
+    dir = opendir(dirname);
     seekdir(dir, loc);
     de = readdir(dir);
     if(de == NULL){
       continue;
     }
     hash_worked++;
-    //printf("%lu: %s\n", loc, de->d_name);
+    printf("%llu: %s\n", loc, de->d_name);
+    closedir(dir);
   }
-  closedir(dir);
 
   //printf("Hashing worked: %d\n", hash_worked);
   int hash_worked_space = 0;
@@ -99,13 +101,14 @@ void u_check_dir_behavior(char * const dirname, dir_seek_behavior * behave){
   memset(found, 0, sizeof(int)*102);
   for(int i=0; i < fragments; i++){
     dir = opendir(dirname);
-    unsigned long loc = -1;
+    unsigned long loc = 1ul<<63;
     loc = loc / fragments * i;
     seekdir(dir, loc);
     de = readdir(dir);
     if(de == NULL){
       continue;
     }
+    printf("Use cookie: %lu found: %s\n", loc, de->d_name);
     if(u_update_found_file(de->d_name, found)){
       hash_worked_space++;
     }
