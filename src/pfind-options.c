@@ -25,7 +25,7 @@ static void pfind_print_help(pfind_options_t * res){
       "\t-N: steal with 50%% likelihood from the next process instead of randomly\n"
       "\t-M <COUNT>: maximum number of elements to process per readdir iteration = %d\n"
       "\t-C: don't output file names just count the number of files found\n"
-      "\t-H: use hashing to parallelize single directory access\n"
+      "\t-H [option]: parallelize single directory access [option 1=hashing, option 2=sequential]\n"
       "\t-P: output per process for debugging and checks loadbalance\n"
       "\t-D [rates]: print rates\n"
       "\t-s <seconds>: Stonewall timer for find = %d\n"
@@ -129,14 +129,14 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help,
   }
 
   int c;
-  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:HNM:")) != -1) {
+  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:H:NM:")) != -1) {
     if (c == -1) {
         break;
     }
 
     switch (c) {
     case 'H':
-      res->hash_single_dir_access = 1;
+      res->parallel_single_dir_access = atoi(optarg);
       break;
     case 'N':
       res->steal_from_next = 1;

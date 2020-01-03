@@ -227,9 +227,10 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
 
   while(! msg_type_flag){
     //usleep(100000);
+    int have_completed = (pending_work == 0 && excess_dirs.size == 0 && current_dir.dir == NULL);
     debug("[%d] processing: %d [%d, %d, phase: %d]\n", pfind_rank, pending_work, have_finalize_token, have_processed_work_after_token, phase);
     // do we have more work?
-    if(pending_work > 0 ){
+    if(! have_completed){
       if (opt->stonewall_timer && MPI_Wtime() >= runtime.stonewall_endtime ){
         if(opt->verbosity > 1){
           printf("Hit stonewall at %.2fs\n", MPI_Wtime());
@@ -253,7 +254,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     }
 
     // we msg_type our last piece of work
-    if (pending_work == 0 && excess_dirs.size == 0 && current_dir.dir == NULL){
+    if (have_completed){
       // Exit condition requesting_rank
       if (have_finalize_token){
         if (have_processed_work_after_token){
@@ -290,15 +291,36 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         debug("[%d] msg ready from %d !\n", pfind_rank, requesting_rank);
 
         int work_to_give = pending_work / 2;
-        printf("%d %p\n", pending_work, current_dir.dir);
-        if(pending_work == 1 && current_dir.dir != NULL){
-          // split the directory
-          printf("SPLITTING NEEDED\n");
+        if(opt->parallel_single_dir_access && pending_work == 0 && current_dir.dir != NULL){
+          // the current node keeps the current position but updates the end
+          // the requester receives new position and updates position.
+          uint64_t dir_new_end = 0;
+
+          if(opt->parallel_single_dir_access == 1){
+            uint64_t dir_span;
+            dir_span = (current_dir.pos_end - current_dir.pos_cur) / 2;
+            dir_new_end = current_dir.pos_cur + dir_span;
+          }else if(opt->parallel_single_dir_access == 2){
+            dir_new_end = current_dir.pos_cur + opt->max_entries_per_iter;
+          }else{
+            printf("Error INVALID option for parallel access!\n");
+            exit(1);
+          }
+
+          strcpy(work[0].name, current_dir.name);
+          work[0].type = 'd';
+          work[0].dir_start = dir_new_end;
+          work[0].dir_end = current_dir.pos_end;
+
+          current_dir.pos_end = dir_new_end;
+          work_to_give = 1;
+          pending_work = 1;
+
+          debug("[%d] splitting the directory into two equal-sized fragments: %llu-%llu and %llu-%llu\n", pfind_rank, (long long unsigned) (long long unsigned) work[0].dir_start, (long long unsigned) work[0].dir_end, (long long unsigned) current_dir.pos_cur, (long long unsigned)  current_dir.pos_end);
         }
 
         int datasize = sizeof(work_t)*work_to_give;
         pending_work -= work_to_give;
-
 
         #ifndef LZ4
           ret = MPI_Send(& work[pending_work], datasize, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
@@ -504,7 +526,7 @@ static int find_do_readdir(char *path, uint64_t dir_start, uint64_t dir_end) {
           res->errors++;
           return 0;
       }
-      if(opt->hash_single_dir_access){
+      if(opt->parallel_single_dir_access){
         if(dir_start == 0 && dir_end == 0){
           dir_end = -1;
         }
@@ -517,21 +539,33 @@ static int find_do_readdir(char *path, uint64_t dir_start, uint64_t dir_end) {
     int processed = 0;
 
     while (1) {
-        uint64_t pos = telldir(d);
-        if(opt->hash_single_dir_access && pos >= dir_end){
-          // done processing with hashing
-          closedir(d);
-          current_dir.dir = NULL;
-          return 0;
+        uint64_t pos = 0;
+        if(opt->parallel_single_dir_access){
+          pos = telldir(d);
+          debug("[%d] processing %llu\n", pfind_rank, (long long unsigned) pos);
+
+          if(pos < dir_start){
+            fprintf(runtime.logfile, "Error, telldir() returned smaller value, hashing doesn't work\n");
+            exit(1);
+          }
+          if(pos >= dir_end){
+            debug("[%d] reached end %llu >= %llu\n", pfind_rank, (long long unsigned) pos, (long long unsigned) dir_end);
+            // done processing with hashing
+            closedir(d);
+            current_dir.dir = NULL;
+            return 0;
+          }
         }
         //printf("find_do_readdir %s - %s\n", dir, path);
         if(processed > opt->max_entries_per_iter){
+          debug("[%d] interrupting readdir\n", pfind_rank);
           // break criteria to allow continuation of job stealing and such
           if(current_dir.dir == NULL){
             strcpy(current_dir.name, path);
             current_dir.dir = d;
           }
           current_dir.pos_cur = pos;
+          current_dir.pos_end = dir_end;
           return 1;
         }
         struct dirent *entry;
@@ -542,9 +576,10 @@ static int find_do_readdir(char *path, uint64_t dir_start, uint64_t dir_end) {
           }
           break;
         }
-        if (entry == 0) {
+        if (entry == NULL) {
             break;
         }
+        //debug("[%d] %s\n", pfind_rank, entry->d_name);
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
