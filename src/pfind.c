@@ -217,9 +217,11 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
 
   while(! msg_type_flag){
     //usleep(100000);
+    int have_completed = (pending_work == 0 && excess_dirs.size == 0 && current_dir.dir == NULL);
     debug("[%d] processing: %d [%d, %d, phase: %d]\n", pfind_rank, pending_work, have_finalize_token, have_processed_work_after_token, phase);
     // do we have more work?
-    if(pending_work > 0 ){
+
+    if(! have_completed){
       if (opt->stonewall_timer && MPI_Wtime() >= runtime.stonewall_endtime ){
         if(opt->verbosity > 1){
           printf("Hit stonewall at %.2fs\n", MPI_Wtime());
@@ -243,7 +245,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     }
 
     // we msg_type our last piece of work
-    if (pending_work == 0 && excess_dirs.size == 0 && open_dir == NULL){
+    if (have_completed){
       // Exit condition requesting_rank
       if (have_finalize_token){
         if (have_processed_work_after_token){
