@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <assert.h>
+#include <sys/time.h>
 
 #ifdef LZ4
 #include <lz4.h>
@@ -98,6 +99,20 @@ static void* smalloc(size_t size){
     exit(1);
   }
   return p;
+}
+
+static void pfind_timer_start(struct timeval * timer){
+  if (gettimeofday(timer, (struct timezone *)NULL) != 0){
+    printf("Error using gettimeofday()");
+    exit(1);
+  }
+}
+
+static uint64_t pfind_timer_diff_usec(struct timeval * start){
+        struct timeval timer;
+        pfind_timer_start(& timer);
+        uint64_t time = (timer.tv_sec - start->tv_sec) * 1000000 + (timer.tv_usec - start->tv_usec);
+        return time;
 }
 
 static void enqueue_dir_excess(char * path, char * entry){
@@ -269,6 +284,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         debug("[%d] forwarding token\n", pfind_rank);
         ret = MPI_Bsend(& phase, 1, MPI_INT, (pfind_rank + 1) % pfind_size, MSG_COMPLETE, MPI_COMM_WORLD);
         CHECK_MPI
+        res->monitor.completion_tokens_send++;
         // we received the finalization token
         if (phase == 3){
           break;
@@ -319,6 +335,9 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
           debug("[%d] splitting the directory into two equal-sized fragments: %llu-%llu and %llu-%llu\n", pfind_rank, (long long unsigned) (long long unsigned) work[0].dir_start, (long long unsigned) work[0].dir_end, (long long unsigned) current_dir.pos_cur, (long long unsigned)  current_dir.pos_end);
         }
 
+        res->monitor.job_steal_inbound++;
+        res->monitor.work_send += work_to_give;
+
         int datasize = sizeof(work_t)*work_to_give;
         pending_work -= work_to_give;
 
@@ -363,6 +382,10 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         steal_neighbor = rand() % pfind_size;
       }
       if(steal_neighbor != pfind_rank){
+        struct timeval t_start;
+        pfind_timer_start(& t_start);
+        res->monitor.job_steal_tries++;
+
         debug("[%d] msg attempting to steal from %d\n", pfind_rank, steal_neighbor);
         ret = MPI_Bsend(NULL, 0, MPI_INT, steal_neighbor, MSG_JOB_STEAL, MPI_COMM_WORLD);
         CHECK_MPI
@@ -390,9 +413,11 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
             work_received /= sizeof(work_t);
             break;
           }
+          // job stealing request
           ret = MPI_Iprobe(MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & has_msg, MPI_STATUS_IGNORE);
           CHECK_MPI
           if(has_msg){
+            res->monitor.job_steal_inbound++;
             ret = MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & wait_status);
             CHECK_MPI
             int requesting_rank = wait_status.MPI_SOURCE;
@@ -406,6 +431,9 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         if (work_received > 0){
           have_processed_work_after_token = 1;
         }
+        res->monitor.work_stolen += work_received;
+
+        res->monitor.job_steal_mpitime_us += pfind_timer_diff_usec(& t_start);
       }
     }
   }
