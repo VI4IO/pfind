@@ -30,6 +30,8 @@
 
 int pfind_rank;
 int pfind_size;
+MPI_Comm pfind_com;
+
 
 //#define debug printf
 #define debug(...)
@@ -179,7 +181,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         }
         runtime.ctime_min = timer_file.st_ctime;
     }
-    MPI_Bcast(&runtime.ctime_min, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&runtime.ctime_min, 1, MPI_INT, 0, pfind_com);
   }
 
   if(opt->results_dir && ! opt->just_count){
@@ -259,10 +261,10 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     int has_msg;
     // try to retrieve token from a neighboring process
     int left_neighbor = pfind_rank == 0 ? pfind_size - 1 : (pfind_rank - 1);
-    ret = MPI_Iprobe(left_neighbor, MSG_COMPLETE, MPI_COMM_WORLD, & has_msg, MPI_STATUS_IGNORE);
+    ret = MPI_Iprobe(left_neighbor, MSG_COMPLETE, pfind_com, & has_msg, MPI_STATUS_IGNORE);
     CHECK_MPI
     if(has_msg){
-      ret = MPI_Recv(& phase, 1, MPI_INT, left_neighbor, MSG_COMPLETE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      ret = MPI_Recv(& phase, 1, MPI_INT, left_neighbor, MSG_COMPLETE, pfind_com, MPI_STATUS_IGNORE);
       CHECK_MPI
       have_finalize_token = 1;
       debug("[%d] recvd finalize token\n", pfind_rank);
@@ -282,7 +284,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         }
         // send the finalize token to the right process
         debug("[%d] forwarding token\n", pfind_rank);
-        ret = MPI_Bsend(& phase, 1, MPI_INT, (pfind_rank + 1) % pfind_size, MSG_COMPLETE, MPI_COMM_WORLD);
+        ret = MPI_Bsend(& phase, 1, MPI_INT, (pfind_rank + 1) % pfind_size, MSG_COMPLETE, pfind_com);
         CHECK_MPI
         res->monitor.completion_tokens_send++;
         // we received the finalization token
@@ -298,11 +300,11 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     // check for job-stealing request
     has_msg = 1;
     while(has_msg){
-      ret = MPI_Iprobe(MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & has_msg, & wait_status);
+      ret = MPI_Iprobe(MPI_ANY_SOURCE, MSG_JOB_STEAL, pfind_com, & has_msg, & wait_status);
       CHECK_MPI
       if(has_msg){
         int requesting_rank = wait_status.MPI_SOURCE;
-        ret = MPI_Recv(NULL, 0, MPI_INT, requesting_rank, MSG_JOB_STEAL, MPI_COMM_WORLD, & wait_status);
+        ret = MPI_Recv(NULL, 0, MPI_INT, requesting_rank, MSG_JOB_STEAL, pfind_com, & wait_status);
         CHECK_MPI
         debug("[%d] msg ready from %d !\n", pfind_rank, requesting_rank);
 
@@ -342,16 +344,16 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         pending_work -= work_to_give;
 
         #ifndef LZ4
-          ret = MPI_Send(& work[pending_work], datasize, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+          ret = MPI_Send(& work[pending_work], datasize, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, pfind_com);
 
         #else
 
         if(datasize > 0){
           int compressed_size;
           compressed_size = LZ4_compress_default((char*) & work[pending_work], compress_buf, datasize, max_compressed);
-          ret = MPI_Send(compress_buf, compressed_size, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+          ret = MPI_Send(compress_buf, compressed_size, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, pfind_com);
         }else{
-          ret = MPI_Send(NULL, 0, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+          ret = MPI_Send(NULL, 0, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, pfind_com);
         }
         #endif
         CHECK_MPI
@@ -387,25 +389,25 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         res->monitor.job_steal_tries++;
 
         debug("[%d] msg attempting to steal from %d\n", pfind_rank, steal_neighbor);
-        ret = MPI_Bsend(NULL, 0, MPI_INT, steal_neighbor, MSG_JOB_STEAL, MPI_COMM_WORLD);
+        ret = MPI_Bsend(NULL, 0, MPI_INT, steal_neighbor, MSG_JOB_STEAL, pfind_com);
         CHECK_MPI
         // check for any pending work stealing request, too.
         while(1){
-          ret = MPI_Iprobe(steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, & has_msg, & wait_status);
+          ret = MPI_Iprobe(steal_neighbor, MSG_JOB_STEAL_RESPONSE, pfind_com, & has_msg, & wait_status);
           CHECK_MPI
           if(has_msg){
             MPI_Get_count(& wait_status, MPI_CHAR, & work_received);
 
             #ifndef LZ4
-              ret = MPI_Recv(work, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+              ret = MPI_Recv(work, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, pfind_com, MPI_STATUS_IGNORE);
             #else
             if(work_received > 0){
-              ret = MPI_Recv(compress_buf, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+              ret = MPI_Recv(compress_buf, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, pfind_com, MPI_STATUS_IGNORE);
               int decompressed_size = LZ4_decompress_safe (compress_buf, (char*)work, work_received, max_compressed);
               //printf("Before: %d after: %d\n", datasize, compressed_size);
               work_received = decompressed_size;
             }else{
-              ret = MPI_Recv(work, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+              ret = MPI_Recv(work, work_received, MPI_CHAR, steal_neighbor, MSG_JOB_STEAL_RESPONSE, pfind_com, MPI_STATUS_IGNORE);
             }
             #endif
             CHECK_MPI
@@ -414,15 +416,15 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
             break;
           }
           // job stealing request
-          ret = MPI_Iprobe(MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & has_msg, MPI_STATUS_IGNORE);
+          ret = MPI_Iprobe(MPI_ANY_SOURCE, MSG_JOB_STEAL, pfind_com, & has_msg, MPI_STATUS_IGNORE);
           CHECK_MPI
           if(has_msg){
             res->monitor.job_steal_inbound++;
-            ret = MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MSG_JOB_STEAL, MPI_COMM_WORLD, & wait_status);
+            ret = MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MSG_JOB_STEAL, pfind_com, & wait_status);
             CHECK_MPI
             int requesting_rank = wait_status.MPI_SOURCE;
             debug("[%d] msg ready from %d, but no work pending!\n", pfind_rank, requesting_rank);
-            ret = MPI_Send(NULL, 0, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, MPI_COMM_WORLD);
+            ret = MPI_Send(NULL, 0, MPI_CHAR, requesting_rank, MSG_JOB_STEAL_RESPONSE, pfind_com);
             CHECK_MPI
           }
         }
@@ -454,6 +456,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   }
 
   res->rate = res->total_files / res->runtime;
+  res->com = pfind_com;
 
   return res;
 }
@@ -465,8 +468,8 @@ pfind_find_results_t * pfind_aggregrate_results(pfind_find_results_t * local){
   }
   memcpy(res, local, sizeof(*res));
 
-  MPI_Reduce(pfind_rank == 0 ? MPI_IN_PLACE : & res->errors, & res->errors, 5, MPI_LONG_LONG_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-  MPI_Reduce(pfind_rank == 0 ? MPI_IN_PLACE : & res->runtime, & res->runtime, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+  MPI_Reduce(pfind_rank == 0 ? MPI_IN_PLACE : & res->errors, & res->errors, 5, MPI_LONG_LONG_INT, MPI_SUM, 0, local->com);
+  MPI_Reduce(pfind_rank == 0 ? MPI_IN_PLACE : & res->runtime, & res->runtime, 1, MPI_DOUBLE, MPI_MAX, 0, local->com);
 
   res->rate = res->total_files / res->runtime;
   return res;

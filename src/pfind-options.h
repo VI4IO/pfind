@@ -7,6 +7,7 @@
 
 extern int pfind_rank;
 extern int pfind_size;
+extern MPI_Comm pfind_com;
 
 typedef struct {
   // https://www.gnu.org/software/findutils/manual/html_mono/find.html
@@ -52,6 +53,7 @@ typedef struct{
   double runtime;
 
   pfind_monitoring_t monitor;
+  MPI_Comm com;
 } pfind_find_results_t;
 
 pfind_find_results_t * pfind_find(pfind_options_t * opt);
