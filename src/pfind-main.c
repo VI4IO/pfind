@@ -3,6 +3,7 @@
 #include <string.h>
 #include <mpi.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #include "pfind-options.h"
 
@@ -15,7 +16,18 @@ static void print_result(pfind_options_t * options, pfind_find_results_t * find,
   }else{
     printf("[%s]", prefix);
   }
-  printf(" found: %ld (scanned %ld files, scanned dirents: %ld, unknown dirents: %ld)\n", find->found_files, find->total_files, find->checked_dirents, find->unknown_file);
+  printf(" found: %ld (scanned %ld files, scanned dirents: %ld, unknown dirents: %ld", find->found_files, find->total_files, find->checked_dirents, find->unknown_file);
+  if(options->verbosity > 0){
+    printf(", job steal msgs received: %"PRIu64", work items send: %"PRIu64", job steal msgs send: %"PRIu64", work items stolen: %"PRIu64", time spend in job stealing: %.3fs, number of completion tokens send: %"PRIu64,
+    find->monitor.job_steal_inbound,
+    find->monitor.work_send,
+    find->monitor.job_steal_tries,
+    find->monitor.work_stolen,
+    find->monitor.job_steal_mpitime_us / 1000000.0,
+    find->monitor.completion_tokens_send
+    );
+  }
+  printf(")\n");
 }
 
 int main(int argc, char ** argv){

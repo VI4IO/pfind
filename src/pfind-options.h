@@ -7,6 +7,7 @@
 
 extern int pfind_rank;
 extern int pfind_size;
+extern MPI_Comm pfind_com;
 
 typedef struct {
   // https://www.gnu.org/software/findutils/manual/html_mono/find.html
@@ -30,6 +31,14 @@ typedef struct {
   int verbosity;
 } pfind_options_t;
 
+typedef struct {
+  uint64_t job_steal_inbound;
+  uint64_t work_send;
+  uint64_t job_steal_tries;
+  uint64_t work_stolen;
+  uint64_t job_steal_mpitime_us; // microseconds spend in job steal attempts (MPI)
+  uint64_t completion_tokens_send;
+} pfind_monitoring_t;
 
 typedef struct{
   uint64_t errors;
@@ -42,6 +51,9 @@ typedef struct{
 
   double rate;
   double runtime;
+
+  pfind_monitoring_t monitor;
+  MPI_Comm com;
 } pfind_find_results_t;
 
 pfind_find_results_t * pfind_find(pfind_options_t * opt);
