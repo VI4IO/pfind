@@ -160,7 +160,8 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     if(pfind_rank==0) {
         static struct stat timer_file;
         if(lstat(opt->timestamp_file, & timer_file) != 0) {
-          pfind_abort("Could not read timestamp file!");
+          printf("Could not open: \"%s\", error: %s", opt->timestamp_file, strerror(errno));
+          pfind_abort("\n");
         }
         runtime.ctime_min = timer_file.st_ctime;
     }
