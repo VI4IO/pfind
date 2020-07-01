@@ -226,8 +226,8 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
 
   DIR * sd = opendir(start_dir);
   if (err == NULL || ! sd) {
-      fprintf (stderr, "Cannot open directory '%s': %s\n", start_dir, strerror (errno));
-      exit (EXIT_FAILURE);
+      fprintf (stderr, "Pfind: cannot open directory '%s': %s\n", start_dir, strerror (errno));
+      return NULL;
   }
   start_dir_length = strlen(start_dir);
 
