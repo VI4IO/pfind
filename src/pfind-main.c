@@ -7,8 +7,8 @@
 
 #include "pfind-options.h"
 
-int pfind_rank;
-int pfind_size;
+extern int pfind_rank;
+extern int pfind_size;
 
 static void print_result(pfind_options_t * options, pfind_find_results_t * find, char * prefix){
   if(options->print_rates){
