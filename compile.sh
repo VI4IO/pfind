@@ -1,9 +1,15 @@
 #!/bin/bash -e
 # This script builds the optional parallel find
 
-CC="${CC:-gcc-10}"
-CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow $(mpicc -showme:compile)"
-LDFLAGS="$(mpicc -showme:link)"
+# Regular options, set on the command line CC
+CC="${CC:-mpicc}"
+CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow"
+LDFLAGS=""
+
+# Test settings
+#CC="${CC:-gcc-10}"
+#CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow $(mpicc -showme:compile)"
+#LDFLAGS="$(mpicc -showme:link)"
 
 rm *.o *.a 2>&1 || true
 
