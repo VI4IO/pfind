@@ -7,9 +7,9 @@ CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow"
 LDFLAGS=""
 
 # Test settings
-#CC="${CC:-gcc-10}"
-#CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow $(mpicc -showme:compile)"
-#LDFLAGS="$(mpicc -showme:link)"
+CC="${CC:-clang-10}"
+CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow $(mpicc -showme:compile)"
+LDFLAGS="$(mpicc -showme:link)"
 
 rm *.o *.a 2>&1 || true
 
@@ -28,7 +28,8 @@ fi
 $CC $CFLAGS -c src/pfind-main.c || exit 1
 $CC $CFLAGS -c src/pfind-options.c || exit 1
 $CC $CFLAGS -c src/pfind.c || exit 1
+$CC $CFLAGS -c src/option.c || exit 1
 $CC $CFLAGS -o pfind *.o -lm $LDFLAGS || exit 1
-ar rcsT pfind.a pfind-options.o pfind.o $FILES
+ar rcsT pfind.a option.o pfind-options.o pfind.o $FILES
 
 echo "[OK]"

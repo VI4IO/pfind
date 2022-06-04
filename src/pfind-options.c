@@ -1,11 +1,11 @@
 #include <stdio.h>
-#include <getopt.h>
 #include <string.h>
 #include <stdlib.h>
 #include <mpi.h>
 #include <regex.h>
 
 #include "pfind-options.h"
+#include "option.h"
 
 
 // $io500_find_cmd $io500_workdir -newer $timestamp_file -size ${mdt_hard_fsize}c -name *01*
@@ -129,62 +129,36 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help,
     firstarg = strdup(argv[1]);
   }
 
-  int c;
-  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:H:NM:Ee")) != -1) {
-    if (c == -1) {
-        break;
-    }
+  char * type = NULL;
+  option_help args[] = {
+    {'E', NULL, "Erase empty directories", OPTION_FLAG, 'd', & res->delete_dirs},
+    {'e', NULL, "Erase files matched", OPTION_FLAG, 'd', & res->delete_files},
+    {'N', NULL, "steal with 50%% likelihood from the next process instead of randomly", OPTION_FLAG, 'd', & res->steal_from_next},
+    {'P', NULL, "output per process for debugging and checks loadbalance", OPTION_FLAG, 'd', & res->print_by_process},
+    {'C', NULL, "don't output file names just count the number of files found", OPTION_FLAG, 'd', & res->just_count},
+    {'v', NULL, "increase the verbosity, use multiple times to increase level", OPTION_FLAG, 'd', & res->verbosity},
+    {'M', NULL, "maximum number of elements to process per readdir iteration", OPTION_OPTIONAL_ARGUMENT, 'd', & res->max_entries_per_iter},
+    {'s', NULL, "Stonewall timer for find", OPTION_OPTIONAL_ARGUMENT, 'd', & res->stonewall_timer},
+    {'q', NULL, "queue length (max pending ops)", OPTION_OPTIONAL_ARGUMENT, 'd', & res->queue_length},
+    {'D', NULL, "[rates]: print rates", OPTION_OPTIONAL_ARGUMENT, 's', & type},
+    {'H', NULL, "parallelize single directory access [option 1=hashing, option 2=sequential]", OPTION_OPTIONAL_ARGUMENT, 'd', & res->parallel_single_dir_access},
+    {'r', NULL, "Where to store results", OPTION_OPTIONAL_ARGUMENT, 's', & res->results_dir},
+    LAST_OPTION
+  };  
+  
+  poption_parse(argc - 1, argv + 1, args);
 
-    switch (c) {
-    case 'E':
-      res->delete_dirs = 1;
-      break;
-    case 'e':
-      res->delete_files = 1;
-      break;
-    case 'H':
-      res->parallel_single_dir_access = atoi(optarg);
-      break;
-    case 'N':
-      res->steal_from_next = 1;
-      break;
-    case 'x':
-        /* ignore fake arg that we added when we processed the extra args */
-        break;
-    case 'P':
-      res->print_by_process = 1;
-      break;
-    case 'C':
-      res->just_count = 1;
-      break;
-    case 'D':
-      if(strcmp(optarg, "rates") == 0){
-        res->print_rates = 1;
-      }else{
-        pfind_abort("Unsupported debug flag\n");
-      }
-      break;
-    case 'h':
-      print_help = 1; break;
-    case 'r':
-      res->results_dir = strdup(optarg); break;
-    case 'q':
-      res->queue_length = atoi(optarg); break;
-      if(res->queue_length < 10){
-        pfind_abort("Queue must be at least 10 elements!\n");
-      }
-      break;
-    case 's':
-      res->stonewall_timer = atol(optarg);
-      break;
-    case 'v':
-      res->verbosity++; break;
-    case 'M':
-      res->max_entries_per_iter = atol(optarg); break;
-    case 0:
-      break;
+  if(res->queue_length < 10){
+    pfind_abort("Queue must be at least 10 elements!\n");
+  }
+  if(type){
+    if(strcmp(type, "rates") == 0){
+      res->print_rates = 1;
+    }else{
+      pfind_abort("Unsupported debug flag\n");
     }
   }
+      
   if(res->verbosity > 2 && pfind_rank == 0){
     printf("Regex: %s\n", res->name_pattern);
   }
