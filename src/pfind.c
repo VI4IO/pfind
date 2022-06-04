@@ -117,7 +117,7 @@ static uint64_t pfind_timer_diff_usec(struct timeval * start){
         return time;
 }
 
-static void enqueue_dir_excess(char * path, char * entry){
+static void enqueue_dir_access(char * path, char * entry){
 
   if(excess_dirs.capacity == excess_dirs.size){
     int newcapacity = excess_dirs.size * 2 + 5;
@@ -522,6 +522,12 @@ static void check_buf(struct stat buf, char * path){
       fprintf(runtime.logfile, "%s\n", path);
     }
     res->found_files++;
+    if(opt->delete_files){
+      if (unlink(path) != 0) {
+        res->errors++;
+        fprintf(runtime.logfile, "Error unlink file: %s\n", path);
+      }
+    }
 }
 
 static void find_do_lstat(char *path) {
@@ -660,7 +666,13 @@ static int find_do_readdir(char *path, uint64_t dir_start, uint64_t dir_end) {
             // optimization to skip stat
             res->found_files++;
             if(! opt->just_count){
-              fprintf(runtime.logfile, "%s/%s\n", dir, entry->d_name);
+             fprintf(runtime.logfile, "%s/%s\n", dir, entry->d_name);
+            }
+            if(opt->delete_files){
+              if (unlinkat(fd, entry->d_name, 0) != 0) {
+                res->errors++;
+                fprintf(runtime.logfile, "Error unlink file: %s/%s\n", dir, entry->d_name);
+              }
             }
             continue;
           }
@@ -679,7 +691,7 @@ static int find_do_readdir(char *path, uint64_t dir_start, uint64_t dir_end) {
               printf("[%d] WARNING, utilizing excess queue for processing of the directory %s as the queue is full, supressing further messages. This may lead to suboptimal performance. Try to increase the queue size.\n", pfind_rank, entry->d_name);
               printed_warning = 1;
             }
-            enqueue_dir_excess(path, entry->d_name);
+            enqueue_dir_access(path, entry->d_name);
           }else{
             char cur_path[PATH_MAX];
             sprintf(cur_path, "%s/%s", path, entry->d_name);
@@ -689,6 +701,15 @@ static int find_do_readdir(char *path, uint64_t dir_start, uint64_t dir_end) {
         }
     }
     closedir(d);
+    if(opt->delete_dirs){
+      rmdir(dir);
+      // check if the directory is empty
+      /* d = opendir(dir);
+      struct dirent *entry;
+      entry = readdir(d);
+      closedir(d);
+      */
+    }
     current_dir.dir = NULL;
     return 0;
 }

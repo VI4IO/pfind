@@ -29,6 +29,8 @@ static void pfind_print_help(pfind_options_t * res){
       "\t-P: output per process for debugging and checks loadbalance\n"
       "\t-D [rates]: print rates\n"
       "\t-s <seconds>: Stonewall timer for find = %d\n"
+      "\t-e: Erase files matched\n"
+      "\t-E: Erase empty directories\n"
       "\t-h: prints the help\n"
       "\t--help: prints the help without initializing MPI\n"
       "\t-r <results_dir>: Where to store results = %s\n"
@@ -128,12 +130,18 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help,
   }
 
   int c;
-  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:H:NM:")) != -1) {
+  while ((c = getopt(argc, argv, "CPs:r:vhD:xq:H:NM:Ee")) != -1) {
     if (c == -1) {
         break;
     }
 
     switch (c) {
+    case 'E':
+      res->delete_dirs = 1;
+      break;
+    case 'e':
+      res->delete_files = 1;
+      break;
     case 'H':
       res->parallel_single_dir_access = atoi(optarg);
       break;

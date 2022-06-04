@@ -16,7 +16,7 @@ static void print_result(pfind_options_t * options, pfind_find_results_t * find,
   }else{
     printf("[%s]", prefix);
   }
-  printf(" found: %ld (scanned %ld files, scanned dirents: %ld, unknown dirents: %ld", find->found_files, find->total_files, find->checked_dirents, find->unknown_file);
+  printf(" %s: %ld (scanned %ld files, scanned dirents: %ld, unknown dirents: %ld", (options->delete_files ? "deleted" : "found"), find->found_files, find->total_files, find->checked_dirents, find->unknown_file);
   if(options->verbosity > 0){
     printf(", job steal msgs received: %"PRIu64", work items send: %"PRIu64", job steal msgs send: %"PRIu64", work items stolen: %"PRIu64", time spend in job stealing: %.3fs, number of completion tokens send: %"PRIu64,
     find->monitor.job_steal_inbound,
@@ -51,6 +51,11 @@ int main(int argc, char ** argv){
     char rank[15];
     sprintf(rank, "%d", pfind_rank);
     print_result(options, find, rank);
+  }
+  
+  if(find == NULL){
+    MPI_Finalize();
+    exit(1);    
   }
 
   pfind_find_results_t * aggregated = pfind_aggregrate_results(find);

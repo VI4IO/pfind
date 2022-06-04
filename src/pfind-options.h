@@ -17,6 +17,8 @@ typedef struct {
   char * results_dir;
   int stonewall_timer;
   int print_rates;
+  int delete_files;
+  int delete_dirs;
 
   char * timestamp_file;
   char * name_pattern;
