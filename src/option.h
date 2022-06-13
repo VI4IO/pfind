@@ -27,6 +27,7 @@ typedef struct{
 
 int64_t pstring_to_bytes(char *size_str);
 void poption_print_current(option_help * args);
+void poption_print_help(option_help * args);
 int poption_parse(int argc, char ** argv, option_help * options);
 
 #endif

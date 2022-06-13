@@ -15,43 +15,16 @@ void pfind_abort(char * str){
   exit(1);
 }
 
-static void pfind_print_help(pfind_options_t * res){
+static void pfind_print_help(pfind_options_t * res, option_help * args){
   printf("pfind \nSynopsis:\n"
       "pfind <workdir> [-newer <timestamp file>] [-size <size>c] [-name <substr>] [-regex <regex>]\n"
       "\tworkdir = \"%s\"\n"
       "\t-newer = \"%s\"\n"
-      "\t-name|-regex = \"%s\"\n"
-      "Optional flags\n"
-      "\t-N: steal with 50%% likelihood from the next process instead of randomly\n"
-      "\t-M <COUNT>: maximum number of elements to process per readdir iteration = %d\n"
-      "\t-C: don't output file names just count the number of files found\n"
-      "\t-H [option]: parallelize single directory access [option 1=hashing, option 2=sequential]\n"
-      "\t-P: output per process for debugging and checks loadbalance\n"
-      "\t-D [rates]: print rates\n"
-      "\t-s <seconds>: Stonewall timer for find = %d\n"
-      "\t-e: Erase files matched\n"
-      "\t-E: Erase empty directories\n"
-      "\t-h: prints the help\n"
-      "\t--help: prints the help without initializing MPI\n"
-      "\t-r <results_dir>: Where to store results = %s\n"
-      "\t-v: increase the verbosity, use multiple times to increase level = %d\n"
-      "\t-q: queue length (max pending ops) = %d\n",
-      res->workdir,
-      res->timestamp_file,
-      res->name_pattern,
-      res->max_entries_per_iter,
-      res->stonewall_timer,
-      res->results_dir,
-      res->verbosity,
-      res->queue_length
-    );
+      "\t-name|-regex = \"%s\"\n", res->workdir, res->timestamp_file, res->name_pattern);
+  poption_print_help(args);
 }
 
 pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help, MPI_Comm com){
-  MPI_Comm_rank(com, & pfind_rank);
-  MPI_Comm_size(com, & pfind_size);
-  pfind_com = com;
-
   pfind_options_t * res = malloc(sizeof(pfind_options_t));
   memset(res, 0, sizeof(pfind_options_t));
   int print_help = force_print_help;
@@ -158,22 +131,18 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help,
       pfind_abort("Unsupported debug flag\n");
     }
   }
+
+  if(print_help){
+    pfind_print_help(res, args);
+    exit(0);
+  }
+  MPI_Comm_rank(com, & pfind_rank);
+  MPI_Comm_size(com, & pfind_size);
+  pfind_com = com;
       
   if(res->verbosity > 2 && pfind_rank == 0){
     printf("Regex: %s\n", res->name_pattern);
   }
-
-  if(print_help){
-    if(pfind_rank == 0)
-      pfind_print_help(res);
-    int init;
-    MPI_Initialized( & init);
-    if(init){
-      MPI_Finalize();
-    }
-    exit(0);
-  }
-
 
   if(! firstarg){
     pfind_abort("Error: pfind <directory>\n");

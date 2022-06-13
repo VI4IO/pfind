@@ -33,7 +33,7 @@ static void print_result(pfind_options_t * options, pfind_find_results_t * find,
 int main(int argc, char ** argv){
   // output help with --help to enable running without mpiexec
   for(int i=0; i < argc; i++){
-    if (strcmp(argv[i], "--help") == 0){
+    if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0){
       argv[i][0] = 0;
       pfind_rank = 0;
       pfind_parse_args(argc, argv, 1, MPI_COMM_SELF);

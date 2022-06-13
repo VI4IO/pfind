@@ -140,7 +140,7 @@ static void print_help_section(option_help * args, option_value_type type, char 
   }
 }
 
-static void option_print_help(option_help * args){
+void poption_print_help(option_help * args){
   print_help_section(args, OPTION_REQUIRED_ARGUMENT, "Required arguments");
   print_help_section(args, OPTION_FLAG, "Flags");
   print_help_section(args, OPTION_OPTIONAL_ARGUMENT, "Optional arguments");
@@ -404,7 +404,7 @@ int poption_parse(int argc, char ** argv, option_help * args){
 
   if(printhelp == 1){
     printf("Synopsis %s\n", argv[0]);
-    option_print_help(args);
+    poption_print_help(args);
     exit(0);
   }
 
