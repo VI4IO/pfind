@@ -7,9 +7,9 @@ CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow"
 LDFLAGS=""
 
 # Test settings
-CC="${CC:-clang-10}"
-CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow $(mpicc -showme:compile)"
-LDFLAGS="$(mpicc -showme:link)"
+#CC="${CC:-clang-10}"
+#CFLAGS="-g -O2 -Wextra -Wall -pipe -std=gnu99 -Wno-format-overflow $(mpicc -showme:compile)"
+#LDFLAGS="$(mpicc -showme:link)"
 
 rm *.o *.a 2>&1 || true
 
