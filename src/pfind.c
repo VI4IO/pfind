@@ -287,7 +287,14 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
         }
         // send the finalize token to the right process
         debug("[%d] forwarding token\n", pfind_rank);
-        ret = MPI_Bsend(& phase, 1, MPI_INT, (pfind_rank + 1) % pfind_size, MSG_COMPLETE, pfind_com);
+        int right_proc = (pfind_rank + 1);
+        if (right_proc == pfind_size){
+          right_proc = 0;
+          if(phase == 3){ // we are done, no need to pass along completion token
+            break;
+          }
+        }
+        ret = MPI_Bsend(& phase, 1, MPI_INT, right_proc, MSG_COMPLETE, pfind_com);
         CHECK_MPI
         res->monitor.completion_tokens_send++;
         // we received the finalization token
