@@ -22,7 +22,7 @@ if [[ -e ./lz4 ]] ; then
   echo "Using LZ4 for optimization"
   CFLAGS+=" $CFLAGS -DLZ4 -I./lz4/lib/"
   LDFLAGS+=" ./lz4/lib/liblz4.a"
-  FILES+=./lz4/lib/*.o
+  FILES+=./lz4/lib/*.a
 fi
 
 $CC $CFLAGS -c src/pfind-main.c || exit 1
