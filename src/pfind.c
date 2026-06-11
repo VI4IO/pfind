@@ -185,7 +185,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
     MPI_Bcast(&runtime.ctime_min, 1, MPI_INT, 0, pfind_com);
   }
 
-  printf("TIME: %lld", runtime.ctime_min);
+  //printf("TIME: %lld", runtime.ctime_min);
 
   if(opt->results_dir && ! opt->just_count){
     char outfile[10240];
@@ -511,7 +511,7 @@ static char  find_file_type(unsigned char c) {
 static void check_buf(struct stat buf, char * path){
     // compare values
     if(opt->timestamp_file){
-      printf("CMP %lld<%lld\n", buf.st_ctime, runtime.ctime_min);
+      //printf("CMP %lld<%lld\n", buf.st_ctime, runtime.ctime_min);
       if( (uint64_t) buf.st_ctime < runtime.ctime_min ){
         if(opt->verbosity >= 2){
           printf("Timestamp too small: %s\n", path);

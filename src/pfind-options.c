@@ -55,7 +55,7 @@ pfind_options_t * pfind_parse_args(int argc, char ** argv, int force_print_help,
       argv[i][0] = 0;
       argv[++i][0] = 0;
     }else if(strcmp(argv[i], "-gid") == 0){
-      printf("%s %d\n", argv[i], strcmp(argv[i], "-gid") == 0);
+      //printf("%s %d\n", argv[i], strcmp(argv[i], "-gid") == 0);
       char * str = argv[i+1];
       res->gid = atoll(str);
       argv[i][0] = 0;
