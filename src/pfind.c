@@ -205,7 +205,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * lopt){
   char * bsend_buf = smalloc( bsend_size );
   MPI_Buffer_attach( bsend_buf, bsend_size );
 
-  if(opt->timestamp_file || opt->size != UINT64_MAX || opt->uid != -1 || opt->gid != -1){
+  if(opt->timestamp_file || opt->size != UINT64_MAX || opt->uid != (uid_t) -1 || opt->gid != (uid_t) -1){
     runtime.needs_stat = 1;
   }
   //ior_aiori_t * backend = aiori_select(opt->backend_name);
